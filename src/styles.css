@@ -1,0 +1,839 @@
+/* ==========================================================================
+   Printer Config — тёмная современная тема
+   ========================================================================== */
+
+:root {
+  --bg: #0e1116;
+  --bg-panel: #151a22;
+  --bg-elevated: #1b2230;
+  --bg-hover: #222b3c;
+  --border: #262f3f;
+  --text: #e6edf7;
+  --text-dim: #8b97ab;
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --err: #ef4444;
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* --------------------------------------------------------------------------
+   Окно
+   -------------------------------------------------------------------------- */
+
+.window {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding-left: 14px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.titlebar__title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  flex: 1;
+}
+
+.titlebar__btn {
+  width: 46px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.titlebar__btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.titlebar__btn--close:hover {
+  background: var(--err);
+  color: #fff;
+}
+
+/* --------------------------------------------------------------------------
+   Каркас: боковое меню + контент
+   -------------------------------------------------------------------------- */
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 216px;
+  flex: 0 0 auto;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 16px;
+}
+
+.sidebar__brand-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.sidebar__brand-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13.5px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+
+.nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.nav-item--active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: #dbeafe;
+  font-weight: 600;
+}
+
+.nav-item__badge {
+  margin-left: auto;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 1px 7px;
+}
+
+.sidebar__footer {
+  margin-top: auto;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------- Views ---------- */
+.view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px 18px 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.view__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.view__header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.view__title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.view__sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 2px 0 0;
+}
+
+.view__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.view__hint {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+/* ---------- Поля ввода ---------- */
+.field {
+  margin-bottom: 14px;
+}
+
+.field__label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.input--search {
+  width: 280px;
+}
+
+.select {
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+}
+
+.select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.skeleton {
+  padding: 16px 18px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 24px;
+  gap: 6px;
+}
+
+.empty__title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.empty__hint {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+/* ---------- Кнопки ---------- */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.button:hover {
+  background: var(--bg-hover);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.button--sm {
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+.button--primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.button--primary:hover {
+  background: var(--accent-hover);
+}
+
+.button--ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.button--ghost:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-dim);
+}
+
+.button--danger {
+  background: var(--err);
+  color: #fff;
+}
+
+.button--danger:hover {
+  background: #b91c1c;
+}
+
+.button--paused {
+  background: var(--warn);
+  color: #fff;
+}
+
+.button--paused:hover {
+  background: #d97706;
+}
+
+.button--big {
+  padding: 11px 20px;
+  font-size: 14px;
+}
+
+.button--back {
+  min-width: auto;
+  padding: 7px 12px;
+}
+
+.button--pulse {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* ---------- Чекбокс ---------- */
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.checkbox:hover {
+  background: var(--bg-hover);
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+/* ---------- Модальное окно ---------- */
+.modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 100;
+}
+
+.modal__panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.modal__title {
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+
+.modal__hint {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ---------- Тосты ---------- */
+.toast-stack {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+  max-width: 90vw;
+}
+
+.toast {
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  animation: slideUp 0.25s ease;
+}
+
+.toast--success {
+  background: var(--ok);
+}
+
+.toast--error {
+  background: var(--err);
+}
+
+.toast--warn {
+  background: var(--warn);
+}
+
+.toast--info {
+  background: var(--accent);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+
+/* ---------- Карточка принтера ---------- */
+.printer-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.printer-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.printer-card__name-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.printer-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.printer-card__name:hover {
+  color: var(--accent);
+}
+
+.printer-card__status {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.printer-card__badges {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge--default {
+  background: var(--accent);
+  color: #fff;
+}
+
+.badge--shared {
+  background: #1f2937;
+  color: #9ca3af;
+}
+
+.badge--network {
+  background: #111827;
+  color: #9ca3af;
+}
+
+.printer-card__meta {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 6px 12px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+
+.printer-card__info-label {
+  color: var(--text-dim);
+}
+
+.printer-card__info-value {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.printer-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.chip {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg-panel);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.printer-card__hint {
+  font-size: 12px;
+  color: var(--warn);
+  margin-top: 8px;
+  align-self: center;
+}
+
+.printer-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ---------- Карточка задания ---------- */
+.job-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.job-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-card__doc {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.job-card__id {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.job-card__meta {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 6px 12px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin: 8px 0 10px;
+}
+
+.job-card__info-label {
+  color: var(--text-dim);
+}
+
+.job-card__info-value {
+  color: var(--text);
+}
+
+.job-card__status {
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg-panel);
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 10px;
+}
+
+.job-card__pages {
+  display: flex;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.job-card__pages-total {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.job-card__pages-printed {
+  color: var(--text-dim);
+}
+
+.job-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- Список заданий ---------- */
+.job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---------- Карточка обнаружения ---------- */
+.discovery-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.discovery-card--empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-dim);
+}
+
+.discovery-card--empty .discovery-card__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.discovery-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.discovery-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.discovery-card__fullname {
+  font-size: 12px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+.discovery-card__meta {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 6px 12px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+
+.discovery-card__meta .discovery-card__info-label {
+  color: var(--text-dim);
+}
+
+.discovery-card__meta .discovery-card__info-value {
+  color: var(--text);
+}
+
+.discovery-card__addresses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.discovery-card__url {
+  margin-top: 10px;
+}
+
+.discovery-card__rp {
+  margin-top: 8px;
+}
+
+.discovery-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.discovery-card__dot {
+  flex-shrink: 0;
+}
+
+/* ---------- О программе ---------- */
+.about-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  max-width: 720px;
+}
+
+.about-card__lead {
+  font-size: 14.5px;
+  line-height: 1.6;
+  margin: 0 0 14px;
+}
+
+.about-card__list {
+  padding-left: 20px;
+  margin: 0 0 14px;
+  line-height: 1.6;
+}
+
+.about-card__list li {
+  margin-bottom: 6px;
+}
+
+.about-card__meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+

@@ -1,0 +1,7 @@
+* text=auto eol=lf
+
+*.rs text eol=lf
+
+# Keep git-lfs out of the React bundle (not needed)
+dist/assets/*.js -diff
+dist/assets/*.css -diff

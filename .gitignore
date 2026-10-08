@@ -1,0 +1,25 @@
+# Build output (already built; kept for a self-contained checkout and the RPM)
+dist/
+
+# Node dependencies
+node_modules/
+
+# Rust build artifacts (large)
+src-tauri/target/
+src-tauri/debug/
+src-tauri/release/
+
+# Local editor / tooling state
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Logs and temp files
+*.log
+.DS_Store
+*.tmp
+
+# Tauri app handle / secrets
+src-tauri/generated/*
+!src-tauri/generated/*.rs

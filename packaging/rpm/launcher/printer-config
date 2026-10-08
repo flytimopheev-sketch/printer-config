@@ -1,0 +1,25 @@
+#!/bin/sh
+# printer-config — start the packaged web UI locally.
+#   start    serve the UI on http://127.0.0.1:9000 (foreground)
+#   restart  stop any local instance and start a new one
+# Runtime is normally provided by packaging/rpm/launcher/printer-config.service.
+set -eu
+
+PORT=${PRINTER_CONFIG_PORT:-9000}
+APP_DIR=/usr/share/printer-config
+
+case "${1:-start}" in
+  start)
+    echo "printer-config: serving http://127.0.0.1:${PORT}"
+    exec python3 -m http.server "${PORT}" --bind 127.0.0.1 --directory "${APP_DIR}"
+    ;;
+  restart)
+    pkill -f "http.server ${PORT}" 2>/dev/null || true
+    sleep 1
+    exec "$0" start
+    ;;
+  *)
+    echo "Usage: $0 {start|restart}" >&2
+    exit 2
+    ;;
+esac
