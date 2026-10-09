@@ -11,13 +11,13 @@ export default function AboutView() {
       <div className="about-card">
         <p className="about-card__lead">
           <b>Printer Config</b> — это локальное десктоп-приложение для управления
-          печатными устройствами под управлением Windows.
+          печатными устройствами на Windows и Linux (Red Hat / RedOS).
         </p>
 
         <ul className="about-card__list">
           <li>
             <strong>Список принтеров:</strong> чтение и изменение параметров через
-            Windows Spooler API (lpx.dll).
+            Windows Spooler API либо CUPS (lpstat / lpadmin).
           </li>
           <li>
             <strong>Очередь заданий:</strong> просмотр, отмена, пауза и перезапуск
@@ -25,16 +25,16 @@ export default function AboutView() {
           </li>
           <li>
             <strong>Обнаружение:</strong> автономное сканирование сети по протоколу
-            mDNS/DNS-SD для поиска сетевых и сетевых принтеров.
+            mDNS/DNS-SD для поиска сетевых принтеров.
           </li>
           <li>
             <strong>Настройки:</strong> сохранение состояния приложения в
-            %APPDATA%\printer-config\config.json.
+            %APPDATA%\printer-config (Windows) или ~/.config/printer-config (Linux).
           </li>
         </ul>
 
         <p className="about-card__meta">
-          Версия: 0.1.0 · Платформа: Windows · UI: React 19 + Tauri 2 · Backend: Rust
+          Версия: 0.1.0 · Платформа: Windows / Linux (RedOS) · UI: React 19 + Tauri 2 · Backend: Rust
         </p>
       </div>
     </div>

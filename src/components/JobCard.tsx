@@ -15,10 +15,10 @@ interface InfoLineProps {
 
 function InfoLine({ label, children }: InfoLineProps) {
   return (
-    <div className="job-card__info">
+    <>
       <span className="job-card__info-label">{label}</span>
       <span className="job-card__info-value">{children}</span>
-    </div>
+    </>
   );
 }
 

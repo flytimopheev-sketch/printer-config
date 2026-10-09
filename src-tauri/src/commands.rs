@@ -1,10 +1,13 @@
-//! Tauri-команды: мост между UI (TS) и winspool/discovery/config.
+//! Tauri-команды: мост между UI (TS) и печатным бэкендом (winspool/CUPS),
+//! discovery и config.
 
 use tauri::State;
 
 use crate::config::{self as config, AppConfig};
 use crate::discovery::Discovery;
-use crate::winspool::{self, JobInfo, PrinterInfo};
+// `backend` — winspool.rs на Windows или cups.rs на Linux; алиас сохраняет
+// прежние имена `winspool::*` внутри этого модуля.
+use crate::backend::{self as winspool, JobInfo, PrinterInfo};
 
 // ---------------------------------------------------------------------------
 // Принтеры
@@ -41,8 +44,13 @@ pub fn add_printer_connection(path: String) -> Result<(), String> {
     if path.is_empty() {
         return Err("Укажите путь к принтеру, например \\\\сервер\\имя".into());
     }
-    if !path.starts_with("\\\\") {
-        return Err("Путь должен начинаться с \\\\ (двойного обратного слэша)".into());
+    // На Windows путь обязан быть UNC; на Linux бэкенд принимает UNC либо
+    // готовый device-uri (ipp://, socket://, smb:// …) — валидация там.
+    #[cfg(windows)]
+    {
+        if !path.starts_with("\\\\") {
+            return Err("Путь должен начинаться с \\\\ (двойного обратного слэша)".into());
+        }
     }
     winspool::add_printer_connection(&path)
 }
@@ -62,11 +70,12 @@ pub fn job_action(printer: String, job_id: u32, action: String) -> Result<(), St
 }
 
 // ---------------------------------------------------------------------------
-// Системные диалоги Windows (printui.dll)
+// Системные диалоги / открытие ссылок
 // ---------------------------------------------------------------------------
 
 /// Виды системных окон:
 /// `properties` | `queue` | `preferences` | `test-page` | `add-wizard` | `settings`.
+#[cfg(windows)]
 #[tauri::command]
 pub fn open_system(kind: String, name: Option<String>) -> Result<(), String> {
     use std::process::Command;
@@ -95,7 +104,61 @@ pub fn open_system(kind: String, name: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
+/// На Linux системные диалоги заменяются веб-интерфейсом CUPS (localhost:631),
+/// а тестовая страница печатается напрямую через `lp`.
+#[cfg(unix)]
+#[tauri::command]
+pub fn open_system(kind: String, name: Option<String>) -> Result<(), String> {
+    use std::process::Command;
+
+    let name = name.unwrap_or_default();
+    let url = match kind.as_str() {
+        "properties" | "preferences" | "queue" => format!("http://localhost:631/printers/{name}"),
+        "add-wizard" => "http://localhost:631/admin".to_string(),
+        "settings" => "http://localhost:631".to_string(),
+        "test-page" => return print_test_page(&name),
+        other => return Err(format!("Неизвестный системный диалог: {other}")),
+    };
+    Command::new("xdg-open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("Не удалось открыть {url}: {e}"))?;
+    Ok(())
+}
+
+/// Печатает простую тестовую страницу через `lp -d <принтер>`.
+#[cfg(unix)]
+fn print_test_page(printer: &str) -> Result<(), String> {
+    use std::process::Command;
+
+    if printer.is_empty() {
+        return Err("Не выбран принтер".into());
+    }
+    let mut path = std::env::temp_dir();
+    path.push("printer-config-testpage.txt");
+    std::fs::write(
+        &path,
+        "Printer Config — тестовая страница\n\nПечать работает.\n",
+    )
+    .map_err(|e| format!("Не удалось создать файл: {e}"))?;
+
+    let out = Command::new("lp")
+        .args(["-d", printer])
+        .arg(&path)
+        .output()
+        .map_err(|e| format!("Не удалось запустить lp: {e}"))?;
+    let _ = std::fs::remove_file(&path);
+
+    if out.status.success() {
+        Ok(())
+    } else {
+        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(if msg.is_empty() { "Не удалось отправить тестовую страницу".into() } else { msg })
+    }
+}
+
 /// Открывает URL (веб-интерфейс найденного принтера).
+#[cfg(windows)]
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -103,6 +166,20 @@ pub fn open_url(url: String) -> Result<(), String> {
     }
     std::process::Command::new("cmd")
         .args(["/c", "start", "", &url])
+        .spawn()
+        .map_err(|e| format!("Не удалось открыть адрес: {e}"))?;
+    Ok(())
+}
+
+/// Открывает URL через `xdg-open` (Linux).
+#[cfg(unix)]
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("Открывать можно только http/https адреса".into());
+    }
+    std::process::Command::new("xdg-open")
+        .arg(&url)
         .spawn()
         .map_err(|e| format!("Не удалось открыть адрес: {e}"))?;
     Ok(())

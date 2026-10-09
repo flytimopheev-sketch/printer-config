@@ -1,0 +1,14 @@
+# Сборочный контейнер для Tauri 2 RPM (RedOS/Red Hat).
+# Содержит Rust, Node и все системные зависимости webkit2gtk-4.1 + rpmbuild.
+FROM fedora:latest
+
+# Слабые зависимости (Recommends) и openh264 пропускаем: зеркало Cisco
+# openh264 часто недоступно и роняет всю транзакцию dnf.
+RUN dnf install -y --setopt=install_weak_deps=false --exclude='openh264*' \
+      rust cargo nodejs npm \
+      webkit2gtk4.1-devel openssl-devel \
+      librsvg2-devel libxdo-devel \
+      gcc gcc-c++ make pkg-config python3 \
+      rpm-build rpmdevtools \
+      curl wget file which git \
+    && dnf clean all

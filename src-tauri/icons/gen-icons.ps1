@@ -1,14 +1,16 @@
 Add-Type -AssemblyName System.Drawing
 
-$size = 256
+$size = 512
 $bmp = New-Object System.Drawing.Bitmap($size, $size)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.SmoothingMode = 'AntiAlias'
+$g.InterpolationMode = 'HighQualityBicubic'
 $g.Clear([System.Drawing.Color]::Transparent)
 
 # Фон - скруглённый квадрат с градиентом
+$k = $size / 256.0   # масштаб координат из 256-базового макета
 $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-$r = 48
+$r = 48 * $k
 $path.AddArc(0, 0, $r*2, $r*2, 180, 90)
 $path.AddArc($size - $r*2, 0, $r*2, $r*2, 270, 90)
 $path.AddArc($size - $r*2, $size - $r*2, $r*2, $r*2, 0, 90)
@@ -23,15 +25,28 @@ $g.FillPath($brush, $path)
 
 # Белый "принтер"
 $white = [System.Drawing.Brushes]::White
-$g.FillRectangle($white, 62, 130, 132, 62)
-$g.FillRectangle($white, 88, 78, 80, 60)
-$g.FillRectangle((New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(70,255,255,255))), 74, 150, 108, 22)
-$g.FillRectangle($white, 88, 176, 80, 34)
+$g.FillRectangle($white, 62*$k, 130*$k, 132*$k, 62*$k)
+$g.FillRectangle($white, 88*$k, 78*$k, 80*$k, 60*$k)
+$g.FillRectangle((New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(70,255,255,255))), 74*$k, 150*$k, 108*$k, 22*$k)
+$g.FillRectangle($white, 88*$k, 176*$k, 80*$k, 34*$k)
 
 $g.Dispose()
 
 $pngPath = Join-Path $PSScriptRoot 'icon.png'
 $bmp.Save($pngPath, [System.Drawing.Imaging.ImageFormat]::Png)
+
+# Набор PNG-размеров для Linux (.desktop / hicolor / AppImage)
+foreach ($px in 32, 128, 256, 512) {
+  $small = New-Object System.Drawing.Bitmap($px, $px)
+  $sg = [System.Drawing.Graphics]::FromImage($small)
+  $sg.InterpolationMode = 'HighQualityBicubic'
+  $sg.SmoothingMode = 'AntiAlias'
+  $sg.DrawImage($bmp, 0, 0, $px, $px)
+  $sg.Dispose()
+  $out = if ($px -eq 512) { 'icon.png' } else { "${px}x${px}.png" }
+  $small.Save((Join-Path $PSScriptRoot $out), [System.Drawing.Imaging.ImageFormat]::Png)
+  $small.Dispose()
+}
 
 # ICO с PNG-данными внутри
 $pngBytes = [System.IO.File]::ReadAllBytes($pngPath)

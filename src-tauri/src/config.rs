@@ -37,9 +37,27 @@ impl Default for AppConfig {
     }
 }
 
+/// Базовый каталог для настроек: `%APPDATA%` (Windows) либо
+/// `$XDG_CONFIG_HOME`/`~/.config` (Linux/RedOS).
+fn config_base() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        std::env::var("APPDATA").map_err(|_| "Не удалось определить каталог %APPDATA%".to_string())
+    }
+    #[cfg(unix)]
+    {
+        if let Ok(x) = std::env::var("XDG_CONFIG_HOME") {
+            Ok(x)
+        } else {
+            let home =
+                std::env::var("HOME").map_err(|_| "Не удалось определить $HOME".to_string())?;
+            Ok(format!("{home}/.config"))
+        }
+    }
+}
+
 pub fn config_path() -> Result<PathBuf, String> {
-    let base = std::env::var("APPDATA")
-        .map_err(|_| "Не удалось определить каталог %APPDATA%".to_string())?;
+    let base = config_base()?;
     let dir = PathBuf::from(base).join("printer-config");
     fs::create_dir_all(&dir).map_err(|e| format!("Не удалось создать каталог настроек: {e}"))?;
     Ok(dir.join("config.json"))

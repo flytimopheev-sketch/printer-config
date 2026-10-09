@@ -36,7 +36,9 @@ body {
   font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
   font-size: 14px;
   color: var(--text);
-  background: transparent;
+  /* Непрозрачный фон окна: прозрачность Tauri на Linux требует работающего
+     композитора, и без него (VNC/RDP/голый X11) окно становится чёрным. */
+  background: var(--bg);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -50,8 +52,6 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
   overflow: hidden;
 }
 

@@ -1,9 +1,9 @@
 [package]
 name = "printer-config"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 license = "GPL-2.0-or-later"
-description = "Современный frameless-менеджер принтеров для Windows — Rust/Tauri-реализация system-config-printer"
+description = "Современный frameless-менеджер принтеров (Windows Spooler / Linux CUPS) — Rust/Tauri-реализация system-config-printer"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -16,6 +16,8 @@ env_logger = "0.11"
 log = "0.4"
 mdns-sd = "0.21"
 flume = "0.12"
+
+[target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Printing",

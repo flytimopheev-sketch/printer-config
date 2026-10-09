@@ -23,3 +23,12 @@ src-tauri/release/
 # Tauri app handle / secrets
 src-tauri/generated/*
 !src-tauri/generated/*.rs
+
+# Tauri CLI generated schemas (build artifacts)
+src-tauri/gen/
+
+# Screenshots / scratch captures
+*.b64
+_shot*.png
+final*.png
+screenshot-*.png

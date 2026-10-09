@@ -18,11 +18,13 @@ interface InfoLineProps {
 }
 
 function InfoLine({ label, children }: InfoLineProps) {
+  // Fragment вместо обёртки: подпись и значение должны быть отдельными
+  // элементами сетки .printer-card__meta, иначе они слипаются в одну ячейку.
   return (
-    <div className="printer-card__info">
+    <>
       <span className="printer-card__info-label">{label}</span>
       <span className="printer-card__info-value">{children}</span>
-    </div>
+    </>
   );
 }
 

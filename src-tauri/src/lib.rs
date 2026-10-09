@@ -3,8 +3,15 @@
 mod commands;
 mod config;
 mod discovery;
+
+#[cfg(windows)]
 mod sys;
-mod winspool;
+#[cfg(windows)]
+#[path = "winspool.rs"]
+mod backend;
+#[cfg(unix)]
+#[path = "cups.rs"]
+mod backend;
 
 use discovery::Discovery;
 use tauri::Manager;
@@ -15,7 +22,7 @@ pub fn run() {
 
     // Self-test без окна: печатает JSON списка принтеров и завершается.
     if std::env::args().any(|a| a == "--self-test") {
-        let result = winspool::list_printers()
+        let result = backend::list_printers()
             .map(|list| serde_json::to_string_pretty(&list).unwrap_or_default())
             .unwrap_or_else(|e| format!("{{\"error\": {e:?}}}"));
         println!("{result}");

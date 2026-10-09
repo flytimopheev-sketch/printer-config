@@ -29,6 +29,10 @@ pub struct FoundPrinter {
 
 impl FoundPrinter {
     /// Рекомендуемый адрес веб-интерфейса принтера.
+    ///
+    /// Фронтенд строит URL своей реализацией (`webUrl` в `lib/api.ts`); метод
+    /// сохранён для полноты Rust API и потому помечен `allow(dead_code)`.
+    #[allow(dead_code)]
     pub fn web_url(&self) -> Option<String> {
         let addr = self.addresses.first()?;
         let rp = self.txt.get("rp").map(String::as_str).unwrap_or("");
@@ -44,10 +48,13 @@ impl FoundPrinter {
 }
 
 /// Состояние mDNS-сканера: команда start/stop + очередь событий для UI.
+///
+/// `rx` обёрнут в `Mutex`, чтобы `Discovery: Sync` — этого требует `State<T>`
+/// в Tauri-командах и `Manager::state` в фоновом потоке.
 pub struct Discovery {
     daemon: Mutex<Option<ServiceDaemon>>,
     tx: Sender<DiscoveryEvent>,
-    rx: Receiver<DiscoveryEvent>,
+    rx: Mutex<Receiver<DiscoveryEvent>>,
 }
 
 impl Discovery {
@@ -56,7 +63,7 @@ impl Discovery {
         Self {
             daemon: Mutex::new(None),
             tx,
-            rx,
+            rx: Mutex::new(rx),
         }
     }
 
@@ -77,7 +84,8 @@ impl Discovery {
                 .browse(service_type)
                 .map_err(|e| format!("Не удалось прослушивать {service_type}: {e}"))?;
             let tx = self.tx.clone();
-            std::thread::spawn(move || run_listener(receiver, tx));
+            let st = service_type.to_string();
+            std::thread::spawn(move || run_listener(receiver, tx, st));
         }
 
         *guard = Some(daemon);
@@ -96,8 +104,9 @@ impl Discovery {
 
     /// Неблокирующий приём событий для вызова из UI-потока.
     pub fn poll(&self) -> Vec<DiscoveryEvent> {
+        let rx = self.rx.lock().unwrap();
         let mut out = Vec::new();
-        while let Ok(ev) = self.rx.try_recv() {
+        while let Ok(ev) = rx.try_recv() {
             out.push(ev);
         }
         out
@@ -110,12 +119,15 @@ impl Default for Discovery {
     }
 }
 
-fn run_listener(receiver: flume::Receiver<ServiceEvent>, tx: Sender<DiscoveryEvent>) {
+fn run_listener(
+    receiver: flume::Receiver<ServiceEvent>,
+    tx: Sender<DiscoveryEvent>,
+    service_type: String,
+) {
     while let Ok(event) = receiver.recv() {
         match event {
             ServiceEvent::ServiceResolved(info) => {
                 let fullname = info.get_fullname().to_string();
-                let service_type = info.get_type().to_string();
                 let instance = fullname
                     .strip_suffix(&service_type)
                     .unwrap_or(&fullname)
@@ -133,7 +145,7 @@ fn run_listener(receiver: flume::Receiver<ServiceEvent>, tx: Sender<DiscoveryEve
                     .collect();
                 let _ = tx.send(DiscoveryEvent::Found(FoundPrinter {
                     fullname,
-                    service_type,
+                    service_type: service_type.clone(),
                     instance,
                     host: info.get_hostname().trim_end_matches('.').to_string(),
                     port: info.get_port(),
