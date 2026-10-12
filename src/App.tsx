@@ -351,19 +351,16 @@ export default function App() {
   const addPrinterPath = useCallback(async () => {
     const path = addPath.trim();
     if (!path) {
-      showToast("warn", "Введите путь к принтеру");
+      showToast("warn", "Введите адрес принтера");
       return;
     }
-    // На Linux (CUPS) допустим и UNC-путь, и готовый device-uri
-    // (ipp://, socket://, smb:// ...) - их принимает бэкенд.
-    const isUri = /^[a-z][a-z0-9+.-]*:\/\//i.test(path);
-    if (!path.startsWith("\\") && !(os === "linux" && isUri)) {
-      showToast(
-        "error",
-        os === "linux"
-          ? "Ожидается \\хост\очередь или URI (ipp://, socket://, smb:// ...)"
-          : "Путь должен начинаться с двойного обратного слеша"
-      );
+    // Windows: только UNC \\хост\очередь.
+    // Linux (CUPS): UNC, device-uri (ipp://, socket:// …) или «голый» адрес —
+    // 192.168.1.50, printer.local:631, 192.168.1.50/Очередь. Разбор, пробу
+    // портов и подбор device-uri делает бэкенд (cups.rs) и возвращает
+    // понятную ошибку, если принтер не отвечает.
+    if (!path.startsWith("\\\\") && os !== "linux") {
+      showToast("error", "Путь должен начинаться с двойного обратного слеша");
       return;
     }
     setModalOpen(false);
@@ -514,13 +511,16 @@ export default function App() {
           <div className="modal__panel">
             <h2 className="modal__title">Добавить сетевой принтер</h2>
             <p className="modal__hint">
-              Укажите путь к принтеру в формате <code>\\сервер\имя</code>.
+              Достаточно IP-адреса — приложение само найдёт IPP или raw-порт.
+              Также можно указать очередь или полный адрес:{" "}
+              <code>192.168.1.50</code>, <code>192.168.1.50/Очередь</code>,{" "}
+              <code>\\сервер\имя</code>, <code>ipp://хост/ipp/print</code>.
             </p>
             <input
               className="input"
               type="text"
               value={addPath}
-              placeholder="\\сервер\имя_принтера"
+              placeholder="192.168.1.50"
               onChange={(e) => setAddPath(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {

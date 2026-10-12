@@ -378,8 +378,211 @@ fn add_with_uri(name: &str, uri: &str) -> Result<(), String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Добавление по «голому» адресу (IP / имя хоста) — то, что вводит пользователь,
+// когда знает только IP принтера: «192.168.1.50», «printer.local:631»,
+// «192.168.1.50/Очередь», «[fd00::1]».
+// ---------------------------------------------------------------------------
+
+/// Разобранная цель вида «хост [:порт] [/очередь]».
+#[derive(Debug, PartialEq)]
+struct BareTarget {
+    host: String,
+    /// Явно указанный порт; `None` — используются стандартные (631/9100).
+    port: Option<u16>,
+    /// Имя очереди CUPS за «/»; `None` — очередь неизвестна, подбираем авто-пробой.
+    queue: Option<String>,
+}
+
+/// Разбор `host`, `host:port`, `host/queue`, `[ipv6]`, `[ipv6]:port/queue`.
+///
+/// UNC-пути и URI схем разбираются до вызова этой функции — здесь принимается
+/// только «чистый» хост без пробелов, слэшей и схем.
+fn parse_bare_target(input: &str) -> Option<BareTarget> {
+    let s = input.trim();
+    if s.is_empty()
+        || s.contains("://")
+        || s.starts_with('\\')
+        || s.chars().any(char::is_whitespace)
+    {
+        return None;
+    }
+    let (hostpart, queue) = match s.split_once('/') {
+        Some((h, q)) => {
+            if q.is_empty() {
+                return None;
+            }
+            (h, Some(q.to_string()))
+        }
+        None => (s, None),
+    };
+    let (host, port) = if let Some(r) = hostpart.strip_prefix('[') {
+        // IPv6 в квадратных скобках: [fd00::1]:631
+        let (h, r) = r.split_once(']')?;
+        let port = match r.strip_prefix(':') {
+            Some(p) => Some(p.parse::<u16>().ok()?),
+            None => None,
+        };
+        (h.to_string(), port)
+    } else {
+        match hostpart.split_once(':') {
+            Some((h, p)) => (h.to_string(), Some(p.parse::<u16>().ok()?)),
+            None => (hostpart.to_string(), None),
+        }
+    };
+    if host.is_empty()
+        || !host.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':')
+        })
+    {
+        return None;
+    }
+    Some(BareTarget { host, port, queue })
+}
+
+/// IPv6-литерал должен заключаться в скобки внутри URI.
+fn fmt_host(host: &str) -> String {
+    if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    }
+}
+
+/// Запрос IPP `Get-Printer-Attributes` (RFC 8010/8011) в байтах.
+fn ipp_get_printer_attributes_bytes(printer_uri: &str) -> Vec<u8> {
+    fn push_str_attr(buf: &mut Vec<u8>, tag: u8, name: &str, value: &str) {
+        buf.push(tag);
+        buf.extend_from_slice(&(name.len() as u16).to_be_bytes());
+        buf.extend_from_slice(name.as_bytes());
+        buf.extend_from_slice(&(value.len() as u16).to_be_bytes());
+        buf.extend_from_slice(value.as_bytes());
+    }
+    let mut buf = vec![0x02, 0x00]; // IPP 2.0
+    buf.extend_from_slice(&[0x00, 0x0B]); // operation: Get-Printer-Attributes
+    buf.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]); // request-id = 1
+    buf.push(0x01); // operation-attributes-tag
+    push_str_attr(&mut buf, 0x47, "attributes-charset", "utf-8");
+    push_str_attr(&mut buf, 0x48, "attributes-natural-language", "en");
+    push_str_attr(&mut buf, 0x45, "printer-uri", printer_uri);
+    buf.push(0x03); // end-of-attributes-tag
+    buf
+}
+
+/// Тело HTTP-ответа после заголовков (`\r\n\r\n`).
+fn split_http_body(resp: &[u8]) -> Option<(&[u8], &[u8])> {
+    resp.windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|i| (&resp[..i], &resp[i + 4..]))
+}
+
+/// Проверка IPP-сервиса: POST `Get-Printer-Attributes` на `http://host:port{path}`.
+///
+/// Принтер/сервер, у которого путь существует, отвечает HTTP 200 и IPP-кодом
+/// статуса < 0x0200 (уровень «ok»). Несуществующий путь даёт HTTP 404 либо
+/// IPP client-error — считаем, что очередь не найдена.
+fn ipp_probe(host: &str, port: u16, path: &str) -> bool {
+    use std::io::{Read, Write};
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let Ok(addrs) = (host, port).to_socket_addrs() else {
+        return false;
+    };
+    let printer_uri = format!("ipp://{}:{port}{path}", fmt_host(host));
+    let body = ipp_get_printer_attributes_bytes(&printer_uri);
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {}:{port}\r\nContent-Type: application/ipp\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        fmt_host(host),
+        body.len()
+    );
+    for addr in addrs {
+        let Ok(mut sock) = TcpStream::connect_timeout(&addr, Duration::from_millis(1500)) else {
+            continue;
+        };
+        let _ = sock.set_read_timeout(Some(Duration::from_secs(3)));
+        let _ = sock.set_write_timeout(Some(Duration::from_secs(3)));
+        if sock.write_all(req.as_bytes()).is_err() || sock.write_all(&body).is_err() {
+            continue;
+        }
+        let mut resp = Vec::new();
+        let _ = sock.read_to_end(&mut resp);
+        let Some((head, ipp)) = split_http_body(&resp) else {
+            continue;
+        };
+        let ok_200 = head.starts_with(b"HTTP/1.0 200") || head.starts_with(b"HTTP/1.1 200");
+        if ok_200 && ipp.len() >= 8 {
+            let status = u16::from_be_bytes([ipp[2], ipp[3]]);
+            if status < 0x0200 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Проверка raw-порта принтера (`socket://host:9100`) обычным TCP-connect.
+fn socket_probe(host: &str, port: u16) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let Ok(addrs) = (host, port).to_socket_addrs() else {
+        return false;
+    };
+    addrs
+        .into_iter()
+        .any(|a| TcpStream::connect_timeout(&a, Duration::from_millis(1500)).is_ok())
+}
+
+/// Подбор рабочего device-uri для «голого» адреса.
+///
+/// Порядок проб (быстрее → надёжнее):
+/// * с очередью — `ipp://host:port/printers/queue`, затем `ipp://host:port/queue`;
+/// * без очереди — стандартные IPP-пути современных принтеров `/ipp/print`, `/ipp`;
+/// * запасной вариант — сырой socket-порт 9100 (открыт почти у всех сетевых принтеров).
+fn resolve_bare_target(t: &BareTarget) -> Result<(String, String), String> {
+    let host = &t.host;
+    let port = t.port.unwrap_or(631);
+    let h = fmt_host(host);
+    let name = sanitize_printer_name(t.queue.as_deref().unwrap_or(host));
+
+    if let Some(q) = &t.queue {
+        for path in [format!("/printers/{q}"), format!("/{q}")] {
+            if ipp_probe(host, port, &path) {
+                return Ok((name, format!("ipp://{h}:{port}{path}")));
+            }
+        }
+        return Err(format!(
+            "Принтер {h} не ответил на IPP-запрос (порт {port}, очередь «{q}»). \
+             Проверьте адрес и имя очереди либо укажите полный URI (ipp://…)."
+        ));
+    }
+
+    for path in ["/ipp/print", "/ipp"] {
+        if ipp_probe(host, port, path) {
+            return Ok((name, format!("ipp://{h}:{port}{path}")));
+        }
+    }
+    let mut socket_ports = vec![9100u16];
+    if port != 631 && !socket_ports.contains(&port) {
+        socket_ports.push(port);
+    }
+    for p in socket_ports {
+        if socket_probe(host, p) {
+            return Ok((name, format!("socket://{h}:{p}")));
+        }
+    }
+    Err(format!(
+        "Принтер {h} не отвечает: IPP (порт 631) и raw-печать (порт 9100) недоступны. \
+         Проверьте, что принтер включён и в той же сети, либо укажите URI вручную \
+         (ipp://{h}/…)."
+    ))
+}
+
 /// Подключение сетевого принтера: принимает `\\хост\очередь` (Windows-путь,
-/// присылаемый UI) или готовый device-uri (`ipp://`, `socket://`, `smb://` …).
+/// присылаемый UI), готовый device-uri (`ipp://`, `socket://`, `smb://` …)
+/// либо «голый» адрес — `192.168.1.50`, `printer.local:631`, `192.168.1.50/Очередь`
+/// (device-uri подбирается пробой IPP/socket, см. `resolve_bare_target`).
 pub fn add_printer_connection(path: &str) -> Result<(), String> {
     let path = path.trim();
     if path.is_empty() {
@@ -416,7 +619,13 @@ pub fn add_printer_connection(path: &str) -> Result<(), String> {
         return add_with_uri(&name, &uri);
     }
 
-    Err("Ожидается путь \\\\хост\\очередь или URI (ipp://, socket://, smb:// …)".into())
+    // «Голый» адрес: IP/хост [:порт] [/очередь] — пробуем подобрать device-uri.
+    if let Some(target) = parse_bare_target(path) {
+        let (name, uri) = resolve_bare_target(&target)?;
+        return add_with_uri(&name, &uri);
+    }
+
+    Err("Ожидается IP-адрес (192.168.1.50), \\\\хост\\очередь или URI (ipp://, socket://, smb:// …)".into())
 }
 
 // ---------------------------------------------------------------------------
@@ -625,5 +834,87 @@ Rank    Owner   Job     File(s)                         Total Size
         assert!(looks_like_permission_error("lpadmin: Unauthorized"));
         assert!(looks_like_permission_error("Interactive authentication required."));
         assert!(!looks_like_permission_error("lpadmin: Unknown destination \"x\""));
+    }
+
+    // --- разбор «голого» адреса ---
+
+    #[test]
+    fn bare_target_parses_ip_host_port_and_queue() {
+        assert_eq!(
+            parse_bare_target("192.168.1.50"),
+            Some(BareTarget {
+                host: "192.168.1.50".into(),
+                port: None,
+                queue: None
+            })
+        );
+        assert_eq!(
+            parse_bare_target("printer.local:631"),
+            Some(BareTarget {
+                host: "printer.local".into(),
+                port: Some(631),
+                queue: None
+            })
+        );
+        assert_eq!(
+            parse_bare_target("192.168.1.50/LaserJet"),
+            Some(BareTarget {
+                host: "192.168.1.50".into(),
+                port: None,
+                queue: Some("LaserJet".into())
+            })
+        );
+        // IPv6 в скобках с портом и очередью.
+        assert_eq!(
+            parse_bare_target("[fd00::1]:631/printers/a"),
+            Some(BareTarget {
+                host: "fd00::1".into(),
+                port: Some(631),
+                queue: Some("printers/a".into())
+            })
+        );
+    }
+
+    #[test]
+    fn bare_target_rejects_non_host_input() {
+        // URI и UNC разбираются другими ветками — здесь они не должны приниматься.
+        assert_eq!(parse_bare_target("ipp://192.168.1.50/ipp/print"), None);
+        assert_eq!(parse_bare_target("\\\\server\\queue"), None);
+        assert_eq!(parse_bare_target("bad host"), None);
+        assert_eq!(parse_bare_target(""), None);
+        assert_eq!(parse_bare_target("host/"), None);
+        assert_eq!(parse_bare_target("host:notaport"), None);
+    }
+
+    #[test]
+    fn fmt_host_wraps_ipv6_only() {
+        assert_eq!(fmt_host("192.168.1.50"), "192.168.1.50");
+        assert_eq!(fmt_host("printer.local"), "printer.local");
+        assert_eq!(fmt_host("fd00::1"), "[fd00::1]");
+    }
+
+    // --- IPP-обвязка ---
+
+    #[test]
+    fn ipp_request_is_valid_get_printer_attributes() {
+        let b = ipp_get_printer_attributes_bytes("ipp://192.168.1.50:631/ipp/print");
+        // version 2.0, operation Get-Printer-Attributes (0x000B), request-id 1.
+        assert_eq!(&b[..2], &[0x02, 0x00]);
+        assert_eq!(&b[2..4], &[0x00, 0x0B]);
+        assert_eq!(&b[4..8], &[0x00, 0x00, 0x00, 0x01]);
+        assert_eq!(b[8], 0x01); // operation-attributes-tag
+        assert_eq!(*b.last().unwrap(), 0x03); // end-of-attributes-tag
+        // Атрибут printer-uri обязан присутствовать в запросе.
+        let needle = b"ipp://192.168.1.50:631/ipp/print";
+        assert!(b.windows(needle.len()).any(|w| w == needle));
+    }
+
+    #[test]
+    fn split_http_body_finds_separator() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: application/ipp\r\n\r\nBODY";
+        let (head, body) = split_http_body(raw).unwrap();
+        assert!(head.starts_with(b"HTTP/1.1 200"));
+        assert_eq!(body, b"BODY");
+        assert_eq!(split_http_body(b"no separator here"), None);
     }
 }
