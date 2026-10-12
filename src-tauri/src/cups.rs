@@ -109,9 +109,13 @@ fn looks_like_permission_error(err: &str) -> bool {
         || e.contains("unauthorized")
         || e.contains("forbidden")
         || e.contains("permission denied")
+        || e.contains("denied")
         || e.contains("interactive authentication required")
         || e.contains("не авторизован")
         || e.contains("доступ запрещ")
+        // Русская локаль CUPS на РЕД ОС отвечает одним словом: «lpadmin: Запрещено».
+        || e.contains("запрещ")
+        || e.contains("отказано")
         || e.contains("login as root")
 }
 
@@ -848,7 +852,12 @@ Rank    Owner   Job     File(s)                         Total Size
     fn permission_error_detection() {
         assert!(looks_like_permission_error("lpadmin: Unauthorized"));
         assert!(looks_like_permission_error("Interactive authentication required."));
+        // Русская локаль РЕД ОС: одно слово «Запрещено».
+        assert!(looks_like_permission_error("lpadmin: Запрещено"));
+        assert!(looks_like_permission_error("lpadmin: запрещено"));
+        assert!(looks_like_permission_error("Access Denied"));
         assert!(!looks_like_permission_error("lpadmin: Unknown destination \"x\""));
+        assert!(!looks_like_permission_error("make_and_model \"Local Raw Printer\""));
     }
 
     // --- разбор «голого» адреса ---
