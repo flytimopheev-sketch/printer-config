@@ -381,20 +381,67 @@ fn sanitize_printer_name(raw: &str) -> String {
     }
 }
 
+/// Экранирование строки для встраивания в одинарные кавычки шелла.
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// Root-скрипт добавления очереди — по образцу system-config-printer /
+/// cups-pk-helper (`PrinterAdd` → `PrinterSetEnabled` → `PrinterSetAcceptJobs`):
+///
+/// 1. драйвер каскадом: driverless `everywhere` → `raw` → без модели;
+/// 2. затем **явно** `cupsenable` + `cupsaccept` — именно это делает
+///    cups-pk-helper после добавления, а одиночный `lpadmin -E` на части сборок
+///    CUPS (напр. 2.2.x в РЕД ОС) оставляет очередь неактивной/невидимой;
+/// 3. в конце — проверка `lpstat -p`, что очередь **действительно** появилась,
+///    и вывод реального текста ошибки `lpadmin`, а не общего «не удалось».
+fn admin_add_queue_script(name: &str, uri: &str) -> String {
+    let n = sh_quote(name);
+    let u = sh_quote(uri);
+    format!(
+        "err=$(mktemp 2>/dev/null || echo /tmp/.pc_lpadmin.err); \
+         if lpadmin -p {n} -v {u} -E -m everywhere 2>\"$err\"; then :; \
+         elif lpadmin -p {n} -v {u} -E -m raw 2>>\"$err\"; then :; \
+         elif lpadmin -p {n} -v {u} -E 2>>\"$err\"; then :; \
+         else cat \"$err\"; rm -f \"$err\"; exit 1; fi; \
+         cupsenable {n} 2>>\"$err\"; cupsaccept {n} 2>>\"$err\"; \
+         if lpstat -p {n} >/dev/null 2>&1; then rm -f \"$err\"; echo __OK__; \
+         else echo 'lpadmin отработал, но очередь не появилась:'; cat \"$err\"; rm -f \"$err\"; exit 1; fi"
+    )
+}
+
+/// Запуск shell-скрипта с повышением прав: сначала от текущего пользователя
+/// (если CUPS разрешён без auth), при ошибке прав — через `pkexec /bin/sh -c`
+/// одним запросом polkit (вся последовательность add+enable+accept атомарна).
+fn run_admin_script(script: &str) -> Result<String, String> {
+    match run("sh", &["-c", script]) {
+        Ok(out) => Ok(out),
+        Err(e) if looks_like_permission_error(&e) => {
+            match run("pkexec", &["/bin/sh", "-c", script]) {
+                Ok(out) => Ok(out),
+                Err(e2) => Err(format!(
+                    "{e}; pkexec: {e2}. Нужны права администратора — подтвердите запрос в окне polkit \
+                     или добавьте принтер через «Печать» → «Добавить принтер» (system-config-printer)."
+                )),
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn add_with_uri(name: &str, uri: &str) -> Result<(), String> {
     let ctx = |e: String| format!("Не удалось создать очередь «{name}» ({uri}): {e}");
-    // Драйвер: для IPP-принтеров — driverless (everywhere), иначе пробуем без -m.
-    if uri.starts_with("ipp://") || uri.starts_with("ipps://") || uri.starts_with("dnssd://") {
-        run_admin_quiet("lpadmin", &["-p", name, "-v", uri, "-E", "-m", "everywhere"])
-            .or_else(|first| {
-                run_admin_quiet("lpadmin", &["-p", name, "-v", uri, "-E"]).map_err(|second| {
-                    format!("{second} [попытка с драйвером «everywhere» не удалась: {first}]")
-                })
-            })
-            .map_err(ctx)
-    } else {
-        run_admin_quiet("lpadmin", &["-p", name, "-v", uri, "-E"]).map_err(ctx)
-    }
+    run_admin_script(&admin_add_queue_script(name, uri))
+        .and_then(|out| {
+            if out.contains("__OK__") {
+                Ok(())
+            } else if out.trim().is_empty() {
+                Ok(())
+            } else {
+                Err(out.trim().to_string())
+            }
+        })
+        .map_err(ctx)
 }
 
 // ---------------------------------------------------------------------------
