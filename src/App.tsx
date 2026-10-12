@@ -8,7 +8,7 @@ import {
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { api, type PrinterInfo, type JobInfo, type FoundPrinter, type AppConfig } from "./lib/api";
+import { api, errText, type PrinterInfo, type JobInfo, type FoundPrinter, type AppConfig } from "./lib/api";
 
 import PrintersView from "./views/PrintersView";
 import JobsView from "./views/JobsView";
@@ -150,7 +150,7 @@ export default function App() {
       const list = await api.listPrinters();
       setPrinters(list);
     } catch (err) {
-      showToast("error", (err as Error).message || "Не удалось получить принтеры");
+      showToast("error", errText(err, "Не удалось получить принтеры"));
     } finally {
       setBusy(false);
     }
@@ -167,7 +167,7 @@ export default function App() {
         showToast("success", "Теперь используется по умолчанию");
         await refreshPrinters();
       } catch (err) {
-        showToast("error", (err as Error).message || "Не удалось установить принтер по умолчанию");
+        showToast("error", errText(err, "Не удалось установить принтер по умолчанию"));
       }
     },
     [showToast, refreshPrinters]
@@ -182,7 +182,7 @@ export default function App() {
         showToast("success", !paused ? "Очередь приостановлена" : "Печать продолжена");
         await refreshPrinters();
       } catch (err) {
-        showToast("error", (err as Error).message || "Не удалось изменить состояние принтера");
+        showToast("error", errText(err, "Не удалось изменить состояние принтера"));
       }
     },
     [showToast, refreshPrinters, printers]
@@ -197,7 +197,7 @@ export default function App() {
         showToast("success", !shared ? "Принтер сделать общим" : "Общий доступ отключен");
         await refreshPrinters();
       } catch (err) {
-        showToast("error", (err as Error).message || "Не удалось изменить общий доступ");
+        showToast("error", errText(err, "Не удалось изменить общий доступ"));
       }
     },
     [showToast, refreshPrinters, printers]
@@ -211,7 +211,7 @@ export default function App() {
         showToast("success", "Принтер удалён");
         await refreshPrinters();
       } catch (err) {
-        showToast("error", (err as Error).message || "Не удалось удалить принтер");
+        showToast("error", errText(err, "Не удалось удалить принтер"));
       }
     },
     [showToast, refreshPrinters]
@@ -229,7 +229,7 @@ export default function App() {
         const list = await api.listJobs(printer);
         setJobs(list);
       } catch (err) {
-        showToast("error", (err as Error).message || "Не удалось получить задания");
+        showToast("error", errText(err, "Не удалось получить задания"));
       } finally {
         setBusy(false);
       }
@@ -253,7 +253,7 @@ export default function App() {
         showToast("success", action === "cancel" ? "Задание отменено" : `Задание ${action}нно`);
         await refreshJobs(printer);
       } catch (err) {
-        showToast("error", (err as Error).message || "Не удалось выполнить действие");
+        showToast("error", errText(err, "Не удалось выполнить действие"));
       }
     },
     [showToast, refreshJobs]
@@ -316,7 +316,7 @@ export default function App() {
       await api.startDiscovery();
       showToast("success", "Обнаружение запущено");
     } catch (err) {
-      showToast("error", (err as Error).message || "Не удалось запустить обнаружение");
+      showToast("error", errText(err, "Не удалось запустить обнаружение"));
     }
   }, [showToast]);
 
@@ -325,7 +325,7 @@ export default function App() {
       await api.stopDiscovery();
       showToast("success", "Обнаружение остановлено");
     } catch (err) {
-      showToast("error", (err as Error).message || "Не удалось остановить обнаружение");
+      showToast("error", errText(err, "Не удалось остановить обнаружение"));
     }
   }, [showToast]);
 
@@ -370,7 +370,7 @@ export default function App() {
       setAddPath("");
       await refreshPrinters();
     } catch (err) {
-      showToast("error", (err as Error).message || "Не удалось подключить принтер");
+      showToast("error", errText(err, "Не удалось подключить принтер"));
     }
   }, [addPath, os, showToast, refreshPrinters]);
 
@@ -497,7 +497,7 @@ export default function App() {
                     refreshPrinters();
                   })
                   .catch((err) => {
-                    showToast("error", (err as Error).message || "Не удалось подключить принтер");
+                    showToast("error", errText(err, "Не удалось подключить принтер"));
                   });
               }}
             />

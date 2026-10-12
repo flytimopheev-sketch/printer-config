@@ -62,10 +62,15 @@ const STATUS_BUSY: u32 = 0x0000_0010;
 // ---------------------------------------------------------------------------
 
 fn run(prog: &str, args: &[&str]) -> Result<String, String> {
-    let out = Command::new(prog)
-        .args(args)
-        .output()
-        .map_err(|e| format!("Не удалось запустить {prog}: {e}"))?;
+    let attempt = |p: &str| Command::new(p).args(args).output();
+    // GUI-приложение может запускаться с урезанным PATH (нет /usr/sbin, где на
+    // Fedora/РЕД ОС живёт lpadmin) — тогда пробуем абсолютный путь из resolve().
+    let out = match attempt(prog) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            attempt(&resolve(prog)).map_err(|e2| format!("Не удалось запустить {prog}: {e2}"))?
+        }
+        other => other.map_err(|e| format!("Не удалось запустить {prog}: {e}"))?,
+    };
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
@@ -120,7 +125,11 @@ fn run_admin(prog: &str, args: &[&str]) -> Result<String, String> {
             pk_args.extend_from_slice(args);
             match run("pkexec", &pk_args) {
                 Ok(out) => Ok(out),
-                Err(e2) => Err(format!("{e}; pkexec: {e2}")),
+                Err(e2) => Err(format!(
+                    "{e}; pkexec: {e2}. \
+                     Для изменения настроек печати нужны права администратора — \
+                     подтвердите запрос в окне polkit (или запустите приложение с правами root)."
+                )),
             }
         }
         Err(e) => Err(e),
@@ -369,12 +378,18 @@ fn sanitize_printer_name(raw: &str) -> String {
 }
 
 fn add_with_uri(name: &str, uri: &str) -> Result<(), String> {
+    let ctx = |e: String| format!("Не удалось создать очередь «{name}» ({uri}): {e}");
     // Драйвер: для IPP-принтеров — driverless (everywhere), иначе пробуем без -m.
     if uri.starts_with("ipp://") || uri.starts_with("ipps://") || uri.starts_with("dnssd://") {
         run_admin_quiet("lpadmin", &["-p", name, "-v", uri, "-E", "-m", "everywhere"])
-            .or_else(|_| run_admin_quiet("lpadmin", &["-p", name, "-v", uri, "-E"]))
+            .or_else(|first| {
+                run_admin_quiet("lpadmin", &["-p", name, "-v", uri, "-E"]).map_err(|second| {
+                    format!("{second} [попытка с драйвером «everywhere» не удалась: {first}]")
+                })
+            })
+            .map_err(ctx)
     } else {
-        run_admin_quiet("lpadmin", &["-p", name, "-v", uri, "-E"])
+        run_admin_quiet("lpadmin", &["-p", name, "-v", uri, "-E"]).map_err(ctx)
     }
 }
 

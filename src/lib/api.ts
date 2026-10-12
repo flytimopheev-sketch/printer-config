@@ -62,6 +62,19 @@ export interface AppConfig {
 // Команды
 // ---------------------------------------------------------------------------
 
+/** Текст ошибки из reject'а Tauri `invoke`: команда отклоняется строкой
+ * (не Error), поэтому `(err as Error).message` даёт undefined и причина
+ * теряется за запасным сообщением. */
+export function errText(err: unknown, fallback: string): string {
+  if (typeof err === "string" && err.trim()) return err;
+  if (err instanceof Error && err.message) return err.message;
+  if (err && typeof err === "object" && "message" in err) {
+    const m = (err as { message?: unknown }).message;
+    if (typeof m === "string" && m) return m;
+  }
+  return fallback;
+}
+
 export const api = {
   listPrinters: () => invoke<PrinterInfo[]>("list_printers"),
   setDefaultPrinter: (name: string) => invoke<void>("set_default_printer", { name }),
