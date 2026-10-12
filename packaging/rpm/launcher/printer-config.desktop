@@ -1,8 +1,0 @@
-[Desktop Entry]
-Version=1.0.0
-Type=Application
-Name=Printer Config
-Comment=Local web UI for printer management
-Exec=printer-config start
-Terminal=true
-Categories=Utility;

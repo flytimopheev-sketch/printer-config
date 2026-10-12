@@ -36,7 +36,15 @@
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "linux": {
       "rpm": {
-        "depends": ["cups", "cups-client", "xdg-utils", "desktop-file-utils"]
+        "depends": [
+          "cups",
+          "cups-client",
+          "xdg-utils",
+          "desktop-file-utils",
+          "webkit2gtk4.1",
+          "gsettings-desktop-schemas",
+          "libnotify"
+        ]
       }
     }
   }

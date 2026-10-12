@@ -1,4 +1,34 @@
-export default function AboutView() {
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+
+interface AboutViewProps {
+  /** `windows` | `linux` | `macos` — пробрасывается из App. */
+  os: string;
+}
+
+/** Подпись ОС, симметричная platformLabel() в App.tsx. */
+function platformLabel(os: string): string {
+  switch (os) {
+    case "windows":
+      return "Windows";
+    case "linux":
+      return "Linux / RedOS";
+    case "macos":
+      return "macOS";
+    default:
+      return os;
+  }
+}
+
+export default function AboutView({ os }: AboutViewProps) {
+  // Версия берётся из tauri.conf.json, а не хардкодится: раньше здесь было
+  // застывшее «0.1.0», расходящееся с реальным номером релиза.
+  const [version, setVersion] = useState("…");
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => setVersion("—"));
+  }, []);
+
   return (
     <div className="view">
       <div className="view__header">
@@ -34,7 +64,7 @@ export default function AboutView() {
         </ul>
 
         <p className="about-card__meta">
-          Версия: 0.1.0 · Платформа: Windows / Linux (RedOS) · UI: React 19 + Tauri 2 · Backend: Rust
+          Версия: {version} · Платформа: {platformLabel(os)} · UI: React 19 + Tauri 2 · Backend: Rust
         </p>
       </div>
     </div>

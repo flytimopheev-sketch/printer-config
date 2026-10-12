@@ -41,7 +41,7 @@ npm run preview
 ```
 
 ## GitHub и выпуск
-Шаблон репозитория уже содержит `dist/`, `README.md`, `packaging/rpm/` и CI-скилл. После создания репозитория GitHub выполните:
+Шаблон репозитория уже содержит `dist/`, `README.md` и CI. После создания репозитория GitHub выполните:
 
 ```ps
 git remote add origin https://github.com/<user>/printer-config.git
@@ -50,26 +50,49 @@ git push -u origin main
 ```
 
 ## Релиз под Red Hat Enterprise Linux / RedOS (RPM)
-Пакет в `packaging/rpm/` упаковывает веб-интерфейс приложения и лаунчер. Бэкенд (Native Windows Spooler)
-начал разрабатываться и не является кросс-платформенным — для работы под Linux требует замены на
-`libcups`/`lp` (пока не выполнено; требование проекта оставляется как TODO).
+Бэкенд кроссплатформенный: под Linux он работает через **CUPS** (`libcups` — команда `lp`,
+`lpadmin`, `lpinfo`, `cupsd`) и полностью покрывает очереди, задания, обнаружение и
+конфигурацию (`src-tauri/src/cups.rs`); под Windows — через Spooler API.
 
-### Сборка RPM на AlmaLinux / Rocky / RedOS
+RPM собирается **нативно через Tauri** (`tauri build`, цель `rpm` в `tauri.conf.json`) —
+это один и тот же GUI-бинарник, что и под Windows, а не веб-обёртка. Сборка выполняется
+в контейнере `packaging/Dockerfile.build` (Fedora 37, glibc 2.36 = РЕД ОС 8.0, поэтому
+бинарник запускается без ошибки «GLIBC_x.xx not found»).
+
+### Автоматический релиз (GitHub Actions)
+Каждый тег `v*` запускает job `rpm` в `.github/workflows/rust.yml`:
+1. собирает контейнер из `packaging/Dockerfile.build`;
+2. выполняет `npm ci && npm run tauri build` внутри контейнера;
+3. прогоняет GUI smoke-тест под Xvfb (окно «Printer Config» обязано появиться);
+4. публикует `Printer-Config-<version>-<release>.<arch>.rpm` ассетом GitHub Release.
+
 ```sh
-# один раз: установить инструменты
-sudo dnf install -y rpm-build createrepo-c
-
-# собрать .rpm
-rpmbuild -bb packaging/rpm/printer-config.spec \
-  --define "_srcrpmdir /tmp/rpmbuild/SRPMS" \
-  --define "_rpmdir /tmp/rpmbuild/RPMS"
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-RPM-файл появится в `/tmp/rpmbuild/RPMS/noarch/printer-config-*.rpm` и можно установить:
+### Локальная сборка RPM
 ```sh
-sudo dnf install -y /tmp/rpmbuild/RPMS/noarch/printer-config-*.rpm
-# или через веб-интерфейс: менеджер пакетов -> локальные файлы
+# один раз: собрать образ
+docker build -f packaging/Dockerfile.build -t printer-build .
+
+# собрать .rpm (результат: src-tauri/target/release/bundle/rpm/*.rpm)
+docker run --rm -v "$PWD":/app -w /app printer-build \
+  bash -c 'npm ci && npm run tauri build'
 ```
 
-Важно: `printer-config.spec` ссылается на `dist/` (от коммита), поэтому перед сборкой RPM убедитесь,
-что `npm run build` выполнен поверх официального релиза.
+Установка на РЕД ОС / AlmaLinux:
+```sh
+sudo dnf install -y "Printer-Config-"*.rpm
+# или через менеджер пакетов -> локальные файлы
+```
+
+Зависимости RPM: `cups`, `cups-client`, `webkit2gtk4.1`, `gsettings-desktop-schemas`,
+`libnotify`, `xdg-utils`, `desktop-file-utils` (список задан в `src-tauri/tauri.conf.json`).
+
+### Заметка про GLib-GIO-CRITICAL
+Сообщение вида `GLib-GIO-CRITICAL **: ... g_settings_schema_source_lookup: assertion 'source != NULL' failed`
+при запуске GTK/WebKit-приложений означает, что в системе не установлены GSettings-схемы
+ GNOME. Пакет `gsettings-desktop-schemas` в зависимостях RPM решает эту проблему; если
+ошибка сохраняется — запустите приложение из терминала и пришлите полный текст строки
+(после таймстемпа идёт имя функции, оно и указывает причину).

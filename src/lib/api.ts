@@ -85,6 +85,9 @@ export const api = {
 
   loadConfig: () => invoke<AppConfig>("load_config"),
   saveConfig: (cfg: AppConfig) => invoke<void>("save_config", { cfg }),
+
+  /** `windows` | `linux` | `macos` — целевая платформа сборки. */
+  platform: () => invoke<string>("platform"),
 };
 
 // ---------------------------------------------------------------------------

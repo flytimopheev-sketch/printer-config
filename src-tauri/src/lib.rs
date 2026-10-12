@@ -47,6 +47,7 @@ pub fn run() {
             commands::discovery_running,
             commands::load_config,
             commands::save_config,
+            commands::platform,
         ])
         .setup(|app| {
             // Фоновый перенос событий mDNS в окно.

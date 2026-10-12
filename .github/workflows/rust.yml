@@ -3,6 +3,7 @@ name: Rust
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
 
@@ -16,7 +17,70 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    # Системные зависимости Tauri (webkit2gtk, appindicator) и CUPS — без них
+    # `cargo build` падает на сборке crate `tauri` и `libcups-sys`.
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential curl wget file pkg-config \
+          libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+          librsvg2-dev libssl-dev libxdo-dev \
+          libcups2-dev cups-client cups-daemon
+
     - name: Build
+      working-directory: src-tauri
       run: cargo build --verbose
     - name: Run tests
+      working-directory: src-tauri
       run: cargo test --verbose
+
+  # Сборка нативного RPM (Tauri bundle) в Fedora 37-контейнере: glibc 2.36
+  # совпадает с РЕД ОС 8.0, поэтому бинарник запускается без «GLIBC not found».
+  # Запускается на тегах v* и публикуется ассетом GitHub Release.
+  rpm:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build container image
+        run: docker build -f packaging/Dockerfile.build -t printer-build .
+
+      - name: Build RPM (tauri build)
+        run: |
+          docker run --rm -v "$PWD":/app -w /app printer-build \
+            bash -c 'set -eux
+              rm -rf node_modules src-tauri/target
+              npm ci
+              npm run tauri build'
+
+      - name: GUI smoke test (Xvfb)
+        run: |
+          docker run --rm -v "$PWD":/app -w /app printer-build \
+            bash -c 'set -eux
+              export DISPLAY=:99
+              Xvfb :99 -screen 0 1280x800x24 &
+              sleep 2
+              dbus-run-session -- ./src-tauri/target/release/printer-config &
+              APP_PID=$!
+              sleep 12
+              xdotool search --name "Printer Config"
+              kill "$APP_PID" || true'
+
+      - name: Collect RPM artifact
+        run: |
+          mkdir -p out
+          shopt -s nullglob
+          for f in src-tauri/target/release/bundle/rpm/*.rpm; do
+            cp "$f" "out/$(basename "$f" | tr ' ' '-')"
+          done
+          ls -l out
+          test -n "$(ls out/*.rpm)"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.rpm
+          generate_release_notes: true

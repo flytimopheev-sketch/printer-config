@@ -1,14 +1,54 @@
-# Сборочный контейнер для Tauri 2 RPM (RedOS/Red Hat).
-# Содержит Rust, Node и все системные зависимости webkit2gtk-4.1 + rpmbuild.
-FROM fedora:latest
+# Сборочный контейнер для Tauri 2 RPM, ориентированный на РЕД ОС 8.0.
+#
+# Ключевое требование — совместимость glibc.
+#   * РЕД ОС 8.0 поставляется с glibc 2.36.
+#   * Fedora 37 тоже даёт glibc 2.36 — ровно как целевая система, поэтому
+#     бинарник не требует символов новее (GLIBC_2.39 и т.п.) и запускается
+#     на РЕД ОС без ошибки «GLIBC_x.xx not found».
+#   * Fedora 41/44 и Rocky 9 не подходят как есть: 44 тянет GLIBC_2.39,
+#     а в Rocky 9 нет пакета webkit2gtk4.1-devel.
+#
+# webkit2gtk:
+#   Tauri 2 (wry 0.57) включает фичу webkit2gtk/v2_40, т.е. линкуется с
+#   libwebkit2gtk-4.1. В РЕД ОС 8.0 пакет webkit2gtk4.1 есть, но ТОЛЬКО
+#   раннтайм, без -devel. Fedora 37 отдаёт webkit2gtk4.1-devel — с ним и собираем.
+#   В RPM эта зависимость не зашивается жёстко: на РЕД ОС библиотека уже стоит.
+FROM fedora:37
 
 # Слабые зависимости (Recommends) и openh264 пропускаем: зеркало Cisco
 # openh264 часто недоступно и роняет всю транзакцию dnf.
+# Xvfb/xdotool/ImageMagick/cups/dbus нужны для smoke-теста GUI прямо в контейнере.
 RUN dnf install -y --setopt=install_weak_deps=false --exclude='openh264*' \
-      rust cargo nodejs npm \
       webkit2gtk4.1-devel openssl-devel \
       librsvg2-devel libxdo-devel \
+      gtk3-devel libsoup-devel libsecret-devel libnotify-devel \
       gcc gcc-c++ make pkg-config python3 \
       rpm-build rpmdevtools \
-      curl wget file which git \
+      curl wget file which git tar xz \
+      Xvfb xdotool ImageMagick cups cups-client dbus-daemon \
     && dnf clean all
+
+# Системный Rust в Fedora 37 слишком стар для Tauri 2, поэтому ставим toolchain
+# через rustup. Важно: версия rustup НЕ влияет на glibc — линковка идёт против
+# системной glibc 2.36 (Fedora 37), поэтому бинарник совместим с РЕД ОС 8.0.
+# 1.88+ нужен из-за транзитивных зависимостей (darling 0.24, icu_* 2.3).
+ARG RUST_VERSION=1.90.0
+RUN curl -fsSL https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal \
+    && ln -sf /root/.cargo/bin/cargo /usr/local/bin/cargo \
+    && ln -sf /root/.cargo/bin/rustc /usr/local/bin/rustc \
+    && rustc --version && cargo --version
+
+# Vite 7 требует Node.js 20.19+/22.12+; в репозиториях Fedora 37 только nodejs 18,
+# поэтому ставим официальный тарбол Node 22 (не влияет на glibc-совместимость
+# собираемого бинарника — Rust линкуется против системного glibc 2.36).
+ARG NODE_VERSION=22.14.0
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+      -o /tmp/node.tar.xz \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.xz \
+    && node --version && npm --version
+
+WORKDIR /app
+
+

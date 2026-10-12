@@ -18,6 +18,20 @@ import Toast from "./components/Toast";
 
 type Tab = "printers" | "jobs" | "discovery" | "about";
 
+/** Подпись ОС для сайдбара и вкладки «О программе». */
+function platformLabel(os: string): string {
+  switch (os) {
+    case "windows":
+      return "Windows";
+    case "linux":
+      return "Linux / RedOS";
+    case "macos":
+      return "macOS";
+    default:
+      return os;
+  }
+}
+
 interface ToastMessage {
   id: number;
   kind: "success" | "error" | "info" | "warn";
@@ -64,7 +78,16 @@ export default function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [addPath, setAddPath] = useState("");
   const [returnTab, setReturnTab] = useState<Tab>("printers");
+  const [os, setOs] = useState<string>("");
   const toastTimer = useRef<number | null>(null);
+
+  // --- платформа сборки (для подписей ОС) ---
+  useEffect(() => {
+    api
+      .platform()
+      .then(setOs)
+      .catch(() => setOs(""));
+  }, []);
 
   // --- загрузить настройки из бэкенда ---
   useEffect(() => {
@@ -331,8 +354,16 @@ export default function App() {
       showToast("warn", "Введите путь к принтеру");
       return;
     }
-    if (!path.startsWith("\\\\")) {
-      showToast("error", "Путь должен начинаться с «\\\\\\» (двойной обратный слеш)");
+    // На Linux (CUPS) допустим и UNC-путь, и готовый device-uri
+    // (ipp://, socket://, smb:// ...) - их принимает бэкенд.
+    const isUri = /^[a-z][a-z0-9+.-]*:\/\//i.test(path);
+    if (!path.startsWith("\\") && !(os === "linux" && isUri)) {
+      showToast(
+        "error",
+        os === "linux"
+          ? "Ожидается \\хост\очередь или URI (ipp://, socket://, smb:// ...)"
+          : "Путь должен начинаться с двойного обратного слеша"
+      );
       return;
     }
     setModalOpen(false);
@@ -344,7 +375,7 @@ export default function App() {
     } catch (err) {
       showToast("error", (err as Error).message || "Не удалось подключить принтер");
     }
-  }, [addPath, showToast, refreshPrinters]);
+  }, [addPath, os, showToast, refreshPrinters]);
 
   const filteredPrinters = useMemo(() => {
     const q = config.search.trim().toLowerCase();
@@ -380,7 +411,7 @@ export default function App() {
         <nav className="sidebar">
           <div className="sidebar__brand">
             <span className="sidebar__brand-name">Printer Config</span>
-            <span className="sidebar__brand-sub">Windows</span>
+            <span className="sidebar__brand-sub">{os ? platformLabel(os) : "…"}</span>
           </div>
 
           {NAV_ITEMS.map((item) => {
@@ -434,6 +465,7 @@ export default function App() {
               onToggleShared={handleToggleShared}
               onDelete={handleDelete}
               onRefresh={refreshPrinters}
+              onOpenJobs={handleSelectPrinter}
               onAddClick={() => setModalOpen(true)}
               busy={busy}
             />
@@ -473,7 +505,7 @@ export default function App() {
               }}
             />
           )}
-          {activeTab === "about" && <AboutView />}
+          {activeTab === "about" && <AboutView os={os} />}
         </main>
       </div>
 

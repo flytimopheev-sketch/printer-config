@@ -423,19 +423,48 @@ pub fn add_printer_connection(path: &str) -> Result<(), String> {
 // Задания
 // ---------------------------------------------------------------------------
 
+/// Индекс, с которого начинается «мусорный» хвост строки `lpq` (размер файла).
+///
+/// Последние токены строки `lpq` — это размер задания, и его формат зависит от
+/// версии CUPS: `1024 bytes` (два токена), `1024` (один) либо слитный `1.5M`.
+/// Без отсечения хвоста размер попадает в имя документа («(stdin) 1024»).
+fn size_tail_start(t: &[&str]) -> usize {
+    let mut end = t.len();
+    while end > 3 {
+        let last = t[end - 1].to_lowercase();
+        if matches!(
+            last.as_str(),
+            "bytes" | "byte" | "b" | "k" | "kb" | "kib" | "m" | "mb" | "mib" | "g" | "gb" | "gib"
+        ) {
+            end -= 1;
+            continue;
+        }
+        // Число («1024») либо число со слитным суффиксом («1.5M»).
+        let is_number = last.parse::<f64>().is_ok();
+        let is_number_with_suffix = last.len() > 1
+            && last[..last.len() - 1].parse::<f64>().is_ok()
+            && last.ends_with(['b', 'k', 'm', 'g', 't']);
+        if is_number || is_number_with_suffix {
+            end -= 1;
+        }
+        break;
+    }
+    end
+}
+
 /// Разбор `lpq -P <printer>`: колонки rank / owner / job / file(s) / size.
 fn parse_lpq(printer: &str, out: &str) -> Vec<JobInfo> {
     let mut jobs: Vec<JobInfo> = Vec::new();
     for line in out.lines() {
         let t: Vec<&str> = line.split_whitespace().collect();
-        // Заголовок («no rank owner job …») и баннер («<имя> is ready») пропускаем.
-        if t.len() < 5 || t[1] == "rank" {
+        // Заголовок («Rank Owner Job …») и баннер («<имя> is ready») пропускаем.
+        if t.len() < 5 || t[0].eq_ignore_ascii_case("rank") || t[2].eq_ignore_ascii_case("job") {
             continue;
         }
         let Ok(id) = t[2].parse::<u32>() else { continue };
         let rank = t[0].to_ascii_lowercase();
         let user = t[1].to_string();
-        let document = t[3..t.len() - 1].join(" ");
+        let document = t[3..size_tail_start(&t)].join(" ");
 
         let (status, status_text) = match rank.as_str() {
             "active" | "processing" => (STATUS_BUSY, "Печать"),
@@ -471,16 +500,17 @@ pub fn list_jobs(printer: &str) -> Result<Vec<JobInfo>, String> {
 }
 
 /// Действия над заданием: `cancel` | `pause` | `resume` | `restart`.
+///
+/// Пауза/продолжение/перезапуск выполняются через `lp -i <очередь-№> -H <hold|release|restart>`.
+/// Утилит `lppause`/`lpresume` (из LPRng) в CUPS нет, поэтому прежний вызов всегда
+/// заканчивался ошибкой «Не удалось запустить lppause».
 pub fn job_action(printer: &str, job_id: u32, action: &str) -> Result<(), String> {
     let target = format!("{printer}-{job_id}");
     match action {
         "cancel" => run_admin_quiet("cancel", &[&target]),
-        "pause" => run_admin_quiet("lppause", &[printer, &job_id.to_string()]),
-        "resume" => run_admin_quiet("lpresume", &[printer, &job_id.to_string()]),
-        "restart" => Err(
-            "Перезапуск задания не поддерживается в CUPS — отмените и отправьте заново"
-                .to_string(),
-        ),
+        "pause" => run_admin_quiet("lp", &["-i", &target, "-H", "hold"]),
+        "resume" => run_admin_quiet("lp", &["-i", &target, "-H", "release"]),
+        "restart" => run_admin_quiet("lp", &["-i", &target, "-H", "restart"]),
         other => Err(format!("Неизвестное действие над заданием: {other}")),
     }
 }
@@ -514,6 +544,42 @@ My Printer is ready
     }
 
     #[test]
+    fn lpq_strips_size_from_document() {
+        // Реальный вывод CUPS 2.x: размер занимает ДВА токена («1024 bytes»),
+        // и раньше «1024» попадало в имя документа.
+        let out = "\
+FilePrn is not ready
+Rank    Owner   Job     File(s)                         Total Size
+1st     root    3       (stdin)                         1024 bytes
+2nd     root    6       my report.pdf                   2048 bytes
+";
+        let jobs = parse_lpq("FilePrn", out);
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].document, "(stdin)");
+        assert_eq!(jobs[1].document, "my report.pdf");
+        // Очередь (не активное задание) — «В очереди» со статус-кодом 0.
+        assert_eq!(jobs[0].status_text, vec!["В очереди"]);
+        assert_eq!(jobs[0].status, 0);
+        assert_eq!(jobs[0].position, 1);
+        assert_eq!(jobs[1].position, 2);
+    }
+
+    #[test]
+    fn lpq_handles_compact_size_token() {
+        // Слитный размер («1.5M») не должен попадать в имя документа.
+        let out = "ready\nRank Owner Job File(s) Total Size\nactive root 9 invoice.pdf 1.5M\n";
+        let jobs = parse_lpq("P", out);
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].document, "invoice.pdf");
+    }
+
+    #[test]
+    fn lpq_empty_queue_has_no_jobs() {
+        let out = "FilePrn is ready\nRank    Owner   Job     File(s)   Total Size\n";
+        assert!(parse_lpq("FilePrn", out).is_empty());
+    }
+
+    #[test]
     fn parse_devices_extracts_uri() {
         let out = "device for HP: ipp://192.168.1.10/ipp/print\n";
         let d = parse_devices(out);
@@ -537,9 +603,12 @@ My Printer is ready
     }
 
     #[test]
-    fn sanitize_printer_name() {
+    fn sanitize_printer_name_matches_cups_rules() {
         assert_eq!(sanitize_printer_name("HP LaserJet 400"), "hp-laserjet-400");
         assert_eq!(sanitize_printer_name(""), "printer");
+        // Разделители по краям обрезаются, иначе имя начиналось бы с «-».
+        assert_eq!(sanitize_printer_name("!!HP!!"), "hp");
+        assert_eq!(sanitize_printer_name("..."), "printer");
     }
 
     #[test]

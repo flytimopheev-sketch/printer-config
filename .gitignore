@@ -19,6 +19,14 @@ src-tauri/release/
 *.log
 .DS_Store
 *.tmp
+tsconfig.tsbuildinfo
+
+# Scratch debug artifacts from local builds (_*.err/_*.out/_*.rpm/_*.log)
+_*.err
+_*.out
+_*.rpm
+_diff*.txt
+_parse_red.py
 
 # Tauri app handle / secrets
 src-tauri/generated/*

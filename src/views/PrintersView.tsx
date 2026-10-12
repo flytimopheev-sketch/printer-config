@@ -12,6 +12,7 @@ interface PrintersViewProps {
   onToggleShared: (name: string) => void;
   onDelete: (name: string) => void;
   onRefresh: () => void;
+  onOpenJobs: (name: string) => void;
   onAddClick: () => void;
   busy: boolean;
 }
@@ -26,6 +27,7 @@ export default function PrintersView({
   onToggleShared,
   onDelete,
   onRefresh,
+  onOpenJobs,
   onAddClick,
   busy,
 }: PrintersViewProps) {
@@ -87,7 +89,7 @@ export default function PrintersView({
             onTogglePaused={onTogglePaused}
             onToggleShared={onToggleShared}
             onDelete={onDelete}
-            onOpenJobs={onRefresh}
+            onOpenJobs={onOpenJobs}
           />
         ))}
       </div>
