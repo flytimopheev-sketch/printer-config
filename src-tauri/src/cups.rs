@@ -389,24 +389,31 @@ fn sh_quote(s: &str) -> String {
 /// Root-скрипт добавления очереди — по образцу system-config-printer /
 /// cups-pk-helper (`PrinterAdd` → `PrinterSetEnabled` → `PrinterSetAcceptJobs`):
 ///
-/// 1. драйвер каскадом: driverless `everywhere` → `raw` → без модели;
-/// 2. затем **явно** `cupsenable` + `cupsaccept` — именно это делает
-///    cups-pk-helper после добавления, а одиночный `lpadmin -E` на части сборок
-///    CUPS (напр. 2.2.x в РЕД ОС) оставляет очередь неактивной/невидимой;
-/// 3. в конце — проверка `lpstat -p`, что очередь **действительно** появилась,
-///    и вывод реального текста ошибки `lpadmin`, а не общего «не удалось».
+/// 1. Явно задаём `PATH` — `pkexec` стартует с очищенным окружением, где может не
+///    быть `/usr/sbin` (где на РЕД ОС лежат lpadmin/cupsenable/cupsaccept/lpstat),
+///    и команды «не находятся» уже под root после ввода пароля.
+/// 2. Сначала удаляем старую очередь с тем же именем (`lpadmin -x`), иначе на
+///    повторном добавлении шаги падают с «already exists».
+/// 3. Драйвер каскадом через `||` (БЕЗ преждевременного выхода): `everywhere`
+///    → `raw` → без модели. Ключевой момент: `-m everywhere` на CUPS 2.2.x может
+///    СОЗДАТЬ очередь, но вернуть ненулевой код. Старая `if/elif/else` тогда
+///    делала `exit 1` и рапортовала «не добавлено», хотя очередь создана. Теперь
+///    источник истины — проверка `lpstat -p` в конце, а не код одного lpadmin.
+/// 4. Затем **явно** `cupsenable` + `cupsaccept` — как делает cups-pk-helper.
+/// 5. В конце `lpstat -p` как источник истины и вывод РЕАЛЬНОЙ ошибки `lpadmin`.
 fn admin_add_queue_script(name: &str, uri: &str) -> String {
     let n = sh_quote(name);
     let u = sh_quote(uri);
     format!(
-        "err=$(mktemp 2>/dev/null || echo /tmp/.pc_lpadmin.err); \
-         if lpadmin -p {n} -v {u} -E -m everywhere 2>\"$err\"; then :; \
-         elif lpadmin -p {n} -v {u} -E -m raw 2>>\"$err\"; then :; \
-         elif lpadmin -p {n} -v {u} -E 2>>\"$err\"; then :; \
-         else cat \"$err\"; rm -f \"$err\"; exit 1; fi; \
+        "PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; \
+         err=$(mktemp 2>/dev/null || echo /tmp/.pc_lpadmin.$$); \
+         lpadmin -x {n} 2>/dev/null; \
+         lpadmin -p {n} -v {u} -E -m everywhere 2>>\"$err\" \
+           || lpadmin -p {n} -v {u} -E -m raw 2>>\"$err\" \
+           || lpadmin -p {n} -v {u} -E 2>>\"$err\"; \
          cupsenable {n} 2>>\"$err\"; cupsaccept {n} 2>>\"$err\"; \
          if lpstat -p {n} >/dev/null 2>&1; then rm -f \"$err\"; echo __OK__; \
-         else echo 'lpadmin отработал, но очередь не появилась:'; cat \"$err\"; rm -f \"$err\"; exit 1; fi"
+         else echo 'Не удалось создать очередь — вывод lpadmin:'; cat \"$err\"; rm -f \"$err\"; exit 1; fi"
     )
 }
 
