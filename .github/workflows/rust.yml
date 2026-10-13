@@ -18,6 +18,18 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    # Собираем фронтенд в dist/ перед компиляцией Rust: `dist/` не под
+    # версионным контролем, а `tauri::generate_context!()` паникует, если
+    # `frontendDist` (../dist) отсутствует в момент cargo build/test.
+    - name: Build frontend
+      run: |
+        npm ci
+        npm run build
+
     # Системные зависимости Tauri (webkit2gtk, appindicator) и CUPS — без них
     # `cargo build` падает на сборке crate `tauri` и `libcups-sys`.
     - name: Install system dependencies
