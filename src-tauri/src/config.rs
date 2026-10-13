@@ -30,8 +30,8 @@ impl Default for AppConfig {
             search: String::new(),
             jobs_printer: None,
             auto_discovery: false,
-            window_width: 1280.0,
-            window_height: 820.0,
+            window_width: 920.0,
+            window_height: 620.0,
             maximized: false,
         }
     }
@@ -105,7 +105,7 @@ mod tests {
         // Совместимость со старыми версиями конфига: новые поля берутся из Default.
         let cfg: AppConfig = serde_json::from_str(r#"{"tab":"discovery"}"#).unwrap();
         assert_eq!(cfg.tab, "discovery");
-        assert_eq!(cfg.window_width, 1280.0);
+        assert_eq!(cfg.window_width, 920.0);
         assert!(cfg.auto_discovery == false);
     }
 

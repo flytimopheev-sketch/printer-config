@@ -64,8 +64,8 @@ export default function App() {
     search: "",
     jobsPrinter: null,
     autoDiscovery: false,
-    windowWidth: 1280,
-    windowHeight: 820,
+    windowWidth: 920,
+    windowHeight: 620,
     maximized: false,
   });
   const [activeTab, setActiveTab] = useState<Tab>("printers");
@@ -94,7 +94,13 @@ export default function App() {
     api
       .loadConfig()
       .then((cfg) => {
-        setConfig(cfg);
+        // Компактное окно по умолчанию: зажимаем размер, сохранённый старыми
+        // версиями (1280×820), чтобы компактная вёрстка применилась и у
+        // существующих пользователей. Пользовательский ресайз при этом
+        // сохраняется (ресайз не записывает размер обратно в конфиг).
+        const w = Math.min(Math.round(cfg.windowWidth) || 920, 920);
+        const h = Math.min(Math.round(cfg.windowHeight) || 620, 620);
+        setConfig({ ...cfg, windowWidth: w, windowHeight: h });
         setActiveTab(cfg.tab as Tab);
       })
       .catch(() => {

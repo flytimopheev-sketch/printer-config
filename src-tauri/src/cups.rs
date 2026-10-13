@@ -395,10 +395,13 @@ fn sh_quote(s: &str) -> String {
 /// 2. Сначала удаляем старую очередь с тем же именем (`lpadmin -x`), иначе на
 ///    повторном добавлении шаги падают с «already exists».
 /// 3. Драйвер каскадом через `||` (БЕЗ преждевременного выхода): `everywhere`
-///    → `raw` → без модели. Ключевой момент: `-m everywhere` на CUPS 2.2.x может
-///    СОЗДАТЬ очередь, но вернуть ненулевой код. Старая `if/elif/else` тогда
-///    делала `exit 1` и рапортовала «не добавлено», хотя очередь создана. Теперь
-///    источник истины — проверка `lpstat -p` в конце, а не код одного lpadmin.
+///    → `raw` → без модели. Два ключевых момента:
+///    • `-m everywhere` оборачиваем в `timeout 20`: на CUPS 2.2.x он делает
+///      СИНХРОННЫЙ IPP-пробинг принтера и может ЗАВИСНУТЬ — после ввода пароля
+///      «ничего не происходит», очередь не создаётся. По таймауту (а также если
+///      `timeout` отсутствует — код 127) `||` мгновенно переводит на `-m raw`.
+///    • `-m everywhere` может СОЗДАТЬ очередь, но вернуть ненулевой код — поэтому
+///      источник истины это `lpstat -p` в конце, а не код одного lpadmin.
 /// 4. Затем **явно** `cupsenable` + `cupsaccept` — как делает cups-pk-helper.
 /// 5. В конце `lpstat -p` как источник истины и вывод РЕАЛЬНОЙ ошибки `lpadmin`.
 fn admin_add_queue_script(name: &str, uri: &str) -> String {
@@ -408,7 +411,7 @@ fn admin_add_queue_script(name: &str, uri: &str) -> String {
         "PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; \
          err=$(mktemp 2>/dev/null || echo /tmp/.pc_lpadmin.$$); \
          lpadmin -x {n} 2>/dev/null; \
-         lpadmin -p {n} -v {u} -E -m everywhere 2>>\"$err\" \
+         timeout 20 lpadmin -p {n} -v {u} -E -m everywhere 2>>\"$err\" \
            || lpadmin -p {n} -v {u} -E -m raw 2>>\"$err\" \
            || lpadmin -p {n} -v {u} -E 2>>\"$err\"; \
          cupsenable {n} 2>>\"$err\"; cupsaccept {n} 2>>\"$err\"; \
@@ -437,15 +440,27 @@ fn run_admin_script(script: &str) -> Result<String, String> {
 }
 
 fn add_with_uri(name: &str, uri: &str) -> Result<(), String> {
-    let ctx = |e: String| format!("Не удалось создать очередь «{name}» ({uri}): {e}");
+    let ctx = |e: String| {
+        format!(
+            "Не удалось создать очередь «{name}» ({uri}): {e}\n\
+             Подсказка: проверьте, что принтер включён и доступен, а порты 631/9100 \
+             открыты. Альтернатива — «Печать» → «Добавить принтер» (system-config-printer)."
+        )
+    };
     run_admin_script(&admin_add_queue_script(name, uri))
         .and_then(|out| {
             if out.contains("__OK__") {
                 Ok(())
-            } else if out.trim().is_empty() {
-                Ok(())
             } else {
-                Err(out.trim().to_string())
+                // `__OK__` печатается только если финальный `lpstat -p` реально видит
+                // очередь. Пустой/иной вывод — НЕ успех, иначе UI рапортует «подключено»,
+                // а принтера в списке нет.
+                let detail = out.trim();
+                Err(if detail.is_empty() {
+                    "lpadmin не сообщил ошибку, но очередь не подтвердилась (lpstat)".to_string()
+                } else {
+                    detail.to_string()
+                })
             }
         })
         .map_err(ctx)
