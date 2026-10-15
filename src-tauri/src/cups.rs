@@ -62,7 +62,18 @@ const STATUS_BUSY: u32 = 0x0000_0010;
 // ---------------------------------------------------------------------------
 
 fn run(prog: &str, args: &[&str]) -> Result<String, String> {
-    let attempt = |p: &str| Command::new(p).args(args).output();
+    // Форсируем C-локаль: CUPS на РЕД ОС отдаёт локализованный (русский) текст
+    // (`принтер …` вместо `printer …`), а парсеры list_printers/parse_* ожидают
+    // английские ключевые слова. Без этого даже корректно созданные очереди не
+    // показывались в списке приложения (system-config-printer их видел, т.к.
+    // использует CUPS API, а не разбор текста).
+    let attempt = |p: &str| {
+        Command::new(p)
+            .args(args)
+            .env("LC_ALL", "C")
+            .env("LANG", "C")
+            .output()
+    };
     // GUI-приложение может запускаться с урезанным PATH (нет /usr/sbin, где на
     // Fedora/РЕД ОС живёт lpadmin) — тогда пробуем абсолютный путь из resolve().
     let out = match attempt(prog) {
@@ -100,6 +111,34 @@ fn resolve(prog: &str) -> String {
         }
     }
     format!("/usr/bin/{prog}")
+}
+
+/// Best-effort отладочный лог в `~/.config/printer-config/add-debug.log`.
+/// Нужен, чтобы видеть реальный путь добавления принтера (прямая попытка и
+/// pkexec): сам скрипт, коды возврата, stdout/stderr. Никогда не влияет на
+/// результат операции — при любой ошибке записи просто молча выходим.
+fn debug_log(msg: &str) {
+    use std::io::Write;
+    let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(home)
+        .join(".config")
+        .join("printer-config");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("add-debug.log"))
+    {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = writeln!(f, "[{ts}] {msg}");
+    }
 }
 
 fn looks_like_permission_error(err: &str) -> bool {
@@ -361,6 +400,207 @@ pub fn delete_printer(name: &str) -> Result<(), String> {
     run_admin_quiet("lpadmin", &["-x", name])
 }
 
+// ---------------------------------------------------------------------------
+// Свойства принтера — просмотр и изменение (аналог «Параметры» в
+// system-config-printer): местонахождение, описание, общий доступ и базовые
+// опции драйвера (размер бумаги, двусторонняя печать, качество).
+// ---------------------------------------------------------------------------
+
+/// Один вариант значения опции (значение + человекочитаемая подпись).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterChoice {
+    pub value: String,
+    pub label: String,
+}
+
+/// Изменяемая опция принтера: ключ (для `lpadmin -o key=value`), подпись,
+/// текущее значение и доступные варианты. Пустой `choices` — свободное поле.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterOption {
+    pub key: String,
+    pub label: String,
+    pub value: String,
+    pub choices: Vec<PrinterChoice>,
+}
+
+/// Свойства принтера для диалога «Свойства».
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterProperties {
+    pub name: String,
+    pub uri: String,
+    pub driver: String,
+    pub location: String,
+    pub description: String,
+    pub shared: bool,
+    pub options: Vec<PrinterOption>,
+}
+
+/// Опции, которые показываем/разрешаем менять в диалоге свойств. Остальные
+/// (десятки служебных) намеренно скрыты, чтобы не перегружать UI.
+const EDITABLE_OPTIONS: &[&str] = &[
+    "PageSize",
+    "MediaType",
+    "Duplex",
+    "ColorModel",
+    "cupsPrintQuality",
+    "Resolution",
+    "InputSlot",
+    "OutputMode",
+];
+
+/// Разбор `lpoptions -p <имя>` → (ключ → текущее значение).
+fn parse_lpoptions_current(text: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for tok in text.split_whitespace() {
+        if let Some((k, v)) = tok.split_once('=') {
+            map.insert(k.to_string(), v.to_string());
+        }
+    }
+    map
+}
+
+/// Разбор `lpoptions -p <имя> -l` → (ключ → (подпись, варианты)).
+///
+/// Формат CUPS: заголовок опции — строка без отступа, кончающаяся на `:`
+/// (`PageSize/Media Size:`); варианты — отступные строки. Значение варианта —
+/// первое «слово», остальное — подпись.
+fn parse_lpoptions_list(text: &str) -> HashMap<String, (String, Vec<PrinterChoice>)> {
+    let mut map: HashMap<String, (String, Vec<PrinterChoice>)> = HashMap::new();
+    let mut current: Option<String> = None;
+    for line in text.lines() {
+        let indented = line.starts_with(' ') || line.starts_with('\t');
+        let trimmed = line.trim();
+        if !indented && trimmed.ends_with(':') && !trimmed.is_empty() {
+            let head = trimmed.trim_end_matches(':');
+            let (key, label) = head.split_once('/').unwrap_or((head, head));
+            let key = key.trim().to_string();
+            let label = label.trim().to_string();
+            map.entry(key.clone()).or_insert_with(|| (label, Vec::new()));
+            current = Some(key);
+        } else if let Some(key) = current.as_ref() {
+            if trimmed.is_empty() {
+                continue;
+            }
+            let mut parts = trimmed.split_whitespace();
+            let value = parts.next().unwrap_or("").to_string();
+            if value.is_empty() {
+                continue;
+            }
+            let choice = PrinterChoice {
+                value,
+                label: trimmed.to_string(),
+            };
+            if let Some((_, choices)) = map.get_mut(key) {
+                choices.push(choice);
+            }
+        }
+    }
+    map
+}
+
+/// Список изменяемых опций: пересекаем EDITABLE_OPTIONS с тем, что реально
+/// поддерживает принтер (по ключу без учёта регистра).
+fn build_editable_options(
+    cur: &HashMap<String, String>,
+    list: &HashMap<String, (String, Vec<PrinterChoice>)>,
+) -> Vec<PrinterOption> {
+    let mut out = Vec::new();
+    for key in EDITABLE_OPTIONS {
+        let value = cur
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
+        let (label, choices) = list
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, (l, c))| (l.clone(), c.clone()))
+            .unwrap_or_else(|| (key.to_string(), Vec::new()));
+        if choices.is_empty() && value.is_empty() {
+            continue; // опция принтеру недоступна
+        }
+        out.push(PrinterOption {
+            key: key.to_string(),
+            label,
+            value,
+            choices,
+        });
+    }
+    out
+}
+
+/// Чтение свойств принтера: `lpstat -l -p` (описание/место/PPD), `lpstat -v`
+/// (device-uri) и `lpoptions` (общий доступ + опции драйвера).
+pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
+    let long = run("lpstat", &["-l", "-p", name]).unwrap_or_default();
+    let current = run("lpoptions", &["-p", name]).unwrap_or_default();
+    let list = run("lpoptions", &["-p", name, "-l"]).unwrap_or_default();
+
+    let uri = run("lpstat", &["-v"])
+        .ok()
+        .and_then(|out| {
+            parse_devices(&out)
+                .into_iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, u)| u)
+        })
+        .unwrap_or_default();
+
+    let details = parse_details(&long);
+    let (description, location, driver) = details.get(name).cloned().unwrap_or_default();
+
+    let cur_map = parse_lpoptions_current(&current);
+    let shared = cur_map
+        .get("printer-is-shared")
+        .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+        .unwrap_or(false);
+
+    let options = build_editable_options(&cur_map, &parse_lpoptions_list(&list));
+
+    Ok(PrinterProperties {
+        name: name.to_string(),
+        uri,
+        driver,
+        location,
+        description,
+        shared,
+        options,
+    })
+}
+
+/// Применение свойств: одна административная команда `lpadmin` (через pkexec при
+/// нехватке прав) выставляет место, описание, общий доступ и выбранные опции.
+pub fn set_printer_properties(
+    name: &str,
+    location: &str,
+    description: &str,
+    shared: bool,
+    options: &HashMap<String, String>,
+) -> Result<(), String> {
+    let mut args: Vec<String> = vec![
+        "-p".into(),
+        name.to_string(),
+        "-L".into(),
+        location.to_string(),
+        "-D".into(),
+        description.to_string(),
+        "-o".into(),
+        format!("printer-is-shared={}", if shared { "true" } else { "false" }),
+    ];
+    for (k, v) in options {
+        if k.trim().is_empty() || v.trim().is_empty() {
+            continue;
+        }
+        args.push("-o".into());
+        args.push(format!("{}={}", k.trim(), v.trim()));
+    }
+    let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    run_admin_quiet("lpadmin", &refs)
+}
+
 /// Санитизация имени принтера для CUPS (допустимы буквы, цифры, `-`, `_`).
 fn sanitize_printer_name(raw: &str) -> String {
     let s: String = raw
@@ -409,6 +649,7 @@ fn admin_add_queue_script(name: &str, uri: &str) -> String {
     let u = sh_quote(uri);
     format!(
         "PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH; \
+         LC_ALL=C; export LC_ALL; \
          err=$(mktemp 2>/dev/null || echo /tmp/.pc_lpadmin.$$); \
          lpadmin -x {n} 2>/dev/null; \
          timeout 20 lpadmin -p {n} -v {u} -E -m everywhere 2>>\"$err\" \

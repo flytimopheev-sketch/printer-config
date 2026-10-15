@@ -8,13 +8,14 @@ import {
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { api, errText, type PrinterInfo, type JobInfo, type FoundPrinter, type AppConfig } from "./lib/api";
+import { api, errText, printerWebUrl, type PrinterInfo, type JobInfo, type FoundPrinter, type AppConfig, type PrinterProperties } from "./lib/api";
 
 import PrintersView from "./views/PrintersView";
 import JobsView from "./views/JobsView";
 import DiscoveryView from "./views/DiscoveryView";
 import AboutView from "./views/AboutView";
 import Toast from "./components/Toast";
+import PrinterPropertiesModal, { type PropertiesForm } from "./components/PrinterPropertiesModal";
 
 type Tab = "printers" | "jobs" | "discovery" | "about";
 
@@ -79,6 +80,10 @@ export default function App() {
   const [addPath, setAddPath] = useState("");
   const [returnTab, setReturnTab] = useState<Tab>("printers");
   const [os, setOs] = useState<string>("");
+  const [propsName, setPropsName] = useState<string | null>(null);
+  const [propsData, setPropsData] = useState<PrinterProperties | null>(null);
+  const [propsLoading, setPropsLoading] = useState(false);
+  const [propsSaving, setPropsSaving] = useState(false);
   const toastTimer = useRef<number | null>(null);
 
   // --- платформа сборки (для подписей ОС) ---
@@ -221,6 +226,71 @@ export default function App() {
       }
     },
     [showToast, refreshPrinters]
+  );
+
+  // --- свойства принтера (диалог) ---
+  const handleShowProperties = useCallback(
+    async (name: string) => {
+      setPropsName(name);
+      setPropsData(null);
+      setPropsLoading(true);
+      try {
+        const data = await api.getPrinterProperties(name);
+        setPropsData(data);
+      } catch (err) {
+        showToast("error", errText(err, "Не удалось получить свойства принтера"));
+        setPropsName(null);
+      } finally {
+        setPropsLoading(false);
+      }
+    },
+    [showToast]
+  );
+
+  const handleCloseProperties = useCallback(() => {
+    setPropsName(null);
+    setPropsData(null);
+  }, []);
+
+  const handleSaveProperties = useCallback(
+    async (form: PropertiesForm) => {
+      if (!propsName) return;
+      setPropsSaving(true);
+      try {
+        await api.setPrinterProperties(
+          propsName,
+          form.location,
+          form.description,
+          form.shared,
+          form.options
+        );
+        showToast("success", "Свойства принтера сохранены");
+        setPropsName(null);
+        setPropsData(null);
+        await refreshPrinters();
+      } catch (err) {
+        showToast("error", errText(err, "Не удалось сохранить свойства"));
+      } finally {
+        setPropsSaving(false);
+      }
+    },
+    [propsName, showToast, refreshPrinters]
+  );
+
+  // --- открытие веб-консоли принтера (embedded web server) ---
+  const handleOpenWebConsole = useCallback(
+    (name: string) => {
+      const printer = printers.find((p) => p.name === name);
+      const url = printer ? printerWebUrl(printer.port) : null;
+      if (!url) {
+        showToast("warn", "У этого принтера нет веб-консоля (нет сетевого адреса)");
+        return;
+      }
+      api
+        .openUrl(url)
+        .catch((err) => showToast("error", errText(err, "Не удалось открыть веб-консоль")));
+    },
+    [printers, showToast]
   );
 
   // --- задания ---
@@ -469,6 +539,8 @@ export default function App() {
               onDelete={handleDelete}
               onRefresh={refreshPrinters}
               onOpenJobs={handleSelectPrinter}
+              onShowProperties={handleShowProperties}
+              onOpenWebConsole={handleOpenWebConsole}
               onAddClick={() => setModalOpen(true)}
               busy={busy}
             />
@@ -547,6 +619,24 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {propsName && propsLoading && (
+        <div className="modal" role="dialog" aria-modal="true">
+          <div className="modal__panel">
+            <p className="modal__hint">Загрузка свойств…</p>
+          </div>
+        </div>
+      )}
+
+      {propsName && !propsLoading && propsData && (
+        <PrinterPropertiesModal
+          key={propsData.name}
+          properties={propsData}
+          saving={propsSaving}
+          onClose={handleCloseProperties}
+          onSave={handleSaveProperties}
+        />
       )}
 
       <Toast toasts={toasts} />

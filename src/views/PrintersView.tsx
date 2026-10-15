@@ -13,6 +13,8 @@ interface PrintersViewProps {
   onDelete: (name: string) => void;
   onRefresh: () => void;
   onOpenJobs: (name: string) => void;
+  onShowProperties: (name: string) => void;
+  onOpenWebConsole: (name: string) => void;
   onAddClick: () => void;
   busy: boolean;
 }
@@ -28,6 +30,8 @@ export default function PrintersView({
   onDelete,
   onRefresh,
   onOpenJobs,
+  onShowProperties,
+  onOpenWebConsole,
   onAddClick,
   busy,
 }: PrintersViewProps) {
@@ -90,6 +94,8 @@ export default function PrintersView({
             onToggleShared={onToggleShared}
             onDelete={onDelete}
             onOpenJobs={onOpenJobs}
+            onShowProperties={onShowProperties}
+            onOpenWebConsole={onOpenWebConsole}
           />
         ))}
       </div>

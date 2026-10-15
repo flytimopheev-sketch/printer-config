@@ -7,7 +7,7 @@ use crate::config::{self as config, AppConfig};
 use crate::discovery::Discovery;
 // `backend` — winspool.rs на Windows или cups.rs на Linux; алиас сохраняет
 // прежние имена `winspool::*` внутри этого модуля.
-use crate::backend::{self as winspool, JobInfo, PrinterInfo};
+use crate::backend::{self as winspool, JobInfo, PrinterInfo, PrinterProperties};
 
 // ---------------------------------------------------------------------------
 // Принтеры
@@ -36,6 +36,25 @@ pub fn set_printer_shared(name: String, shared: bool) -> Result<(), String> {
 #[tauri::command]
 pub fn delete_printer(name: String) -> Result<(), String> {
     winspool::delete_printer(&name)
+}
+
+/// Свойства принтера для диалога «Свойства»: место, описание, общий доступ и
+/// базовые опции драйвера (размер бумаги, двусторонняя печать, качество).
+#[tauri::command]
+pub fn get_printer_properties(name: String) -> Result<PrinterProperties, String> {
+    winspool::get_printer_properties(&name)
+}
+
+/// Применение свойств принтера (одна lpadmin-команда с повышением прав).
+#[tauri::command]
+pub fn set_printer_properties(
+    name: String,
+    location: String,
+    description: String,
+    shared: bool,
+    options: std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    winspool::set_printer_properties(&name, &location, &description, shared, &options)
 }
 
 #[tauri::command]

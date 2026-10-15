@@ -1,5 +1,5 @@
 import { type MouseEvent } from "react";
-import { type PrinterInfo } from "../lib/api";
+import { type PrinterInfo, printerWebUrl } from "../lib/api";
 import { statusText } from "../App";
 
 interface PrinterCardProps {
@@ -10,6 +10,8 @@ interface PrinterCardProps {
   onToggleShared: (name: string) => void;
   onDelete: (name: string) => void;
   onOpenJobs: (name: string) => void;
+  onShowProperties: (name: string) => void;
+  onOpenWebConsole: (name: string) => void;
 }
 
 interface InfoLineProps {
@@ -54,10 +56,13 @@ export default function PrinterCard({
   onToggleShared,
   onDelete,
   onOpenJobs,
+  onShowProperties,
+  onOpenWebConsole,
 }: PrinterCardProps) {
   const isDefault = printer.isDefault;
   const isShared = printer.attributeText.includes("Общий доступ");
   const paused = printer.statusText.some((s) => /пауза/.test(s));
+  const webUrl = printerWebUrl(printer.port);
 
   return (
     <article className="printer-card">
@@ -114,7 +119,13 @@ export default function PrinterCard({
         <ActionButton tone="danger" onClick={() => onDelete(printer.name)}>
           Удалить
         </ActionButton>
+        <ActionButton onClick={() => onShowProperties(printer.name)}>Свойства</ActionButton>
         <ActionButton onClick={() => onOpenJobs(printer.name)}>Открыть очередь</ActionButton>
+        {webUrl && (
+          <ActionButton tone="ghost" onClick={() => onOpenWebConsole(printer.name)}>
+            Веб-консоль
+          </ActionButton>
+        )}
       </div>
     </article>
   );

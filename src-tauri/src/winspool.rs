@@ -109,6 +109,36 @@ pub struct JobInfo {
     pub submitted: String,
 }
 
+/// Опция принтера (виден в диалоге «Свойства»); на Windows диалог пока
+/// реализован только для чтения через CUPS-бэкенд, см. get_printer_properties.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterChoice {
+    pub value: String,
+    pub label: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterOption {
+    pub key: String,
+    pub label: String,
+    pub value: String,
+    pub choices: Vec<PrinterChoice>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterProperties {
+    pub name: String,
+    pub uri: String,
+    pub driver: String,
+    pub location: String,
+    pub description: String,
+    pub shared: bool,
+    pub options: Vec<PrinterOption>,
+}
+
 // ---------------------------------------------------------------------------
 // Декодирование флагов (чистые функции — покрываются юнит-тестами)
 // ---------------------------------------------------------------------------
@@ -352,6 +382,22 @@ pub fn add_printer_connection(path: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Диалог «Свойства» (место, описание, опции драйвера) реализован поверх CUPS.
+/// На Windows возвращаем понятную ошибку — UI скроет кнопку/покажет тост.
+pub fn get_printer_properties(_name: &str) -> Result<PrinterProperties, String> {
+    Err("Свойства принтера доступны пока только в Linux/CUPS-версии".into())
+}
+
+pub fn set_printer_properties(
+    _name: &str,
+    _location: &str,
+    _description: &str,
+    _shared: bool,
+    _options: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    Err("Свойства принтера доступны пока только в Linux/CUPS-версии".into())
 }
 
 fn format_systemtime(st: &windows_sys::Win32::Foundation::SYSTEMTIME) -> String {

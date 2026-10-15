@@ -462,6 +462,22 @@ body {
   margin-top: 16px;
 }
 
+/* Диалог свойств принтера: шире базового и прокручиваемый, если опций много. */
+.modal__panel--wide {
+  max-width: 560px;
+  max-height: 84vh;
+  overflow-y: auto;
+}
+
+.modal__subtitle {
+  font-size: 14px;
+  margin: 16px 0 8px;
+}
+
+.modal__options {
+  margin-top: 4px;
+}
+
 /* ---------- Тосты ---------- */
 .toast-stack {
   position: fixed;

@@ -47,6 +47,28 @@ export interface FoundPrinter {
   txt: Record<string, string>;
 }
 
+export interface PrinterChoice {
+  value: string;
+  label: string;
+}
+
+export interface PrinterOption {
+  key: string;
+  label: string;
+  value: string;
+  choices: PrinterChoice[];
+}
+
+export interface PrinterProperties {
+  name: string;
+  uri: string;
+  driver: string;
+  location: string;
+  description: string;
+  shared: boolean;
+  options: PrinterOption[];
+}
+
 export interface AppConfig {
   tab: string;
   selectedPrinter: string | null;
@@ -85,6 +107,16 @@ export const api = {
   deletePrinter: (name: string) => invoke<void>("delete_printer", { name }),
   addPrinterConnection: (path: string) => invoke<void>("add_printer_connection", { path }),
 
+  getPrinterProperties: (name: string) =>
+    invoke<PrinterProperties>("get_printer_properties", { name }),
+  setPrinterProperties: (
+    name: string,
+    location: string,
+    description: string,
+    shared: boolean,
+    options: Record<string, string>
+  ) => invoke<void>("set_printer_properties", { name, location, description, shared, options }),
+
   listJobs: (printer: string) => invoke<JobInfo[]>("list_jobs", { printer }),
   jobAction: (printer: string, jobId: number, action: string) =>
     invoke<void>("job_action", { printer, jobId, action }),
@@ -122,4 +154,21 @@ export function webUrl(p: FoundPrinter): string | null {
   const raw = p.txt["rp"] ?? "";
   const path = raw === "" ? "/" : raw.startsWith("/") ? raw : `/${raw}`;
   return `http://${addr}:${p.port}${path}`;
+}
+
+/** Хост из device-uri принтера: `ipp://192.168.1.50:631/ipp/print` → `192.168.1.50`.
+ * IPv6-литерал в скобках возвращается без них. */
+export function printerHost(uri: string): string | null {
+  if (!uri) return null;
+  const m = uri.match(/^[a-z][a-z0-9+.-]*:\/\/(\[[^\]]+\]|[^/ :]+)/i);
+  if (!m) return null;
+  let host = m[1];
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  return host || null;
+}
+
+/** Веб-консоль (embedded web server) принтера: `http://<хост>/`. */
+export function printerWebUrl(uri: string): string | null {
+  const host = printerHost(uri);
+  return host ? `http://${host}/` : null;
 }

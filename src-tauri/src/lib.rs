@@ -38,6 +38,8 @@ pub fn run() {
             commands::set_printer_shared,
             commands::delete_printer,
             commands::add_printer_connection,
+            commands::get_printer_properties,
+            commands::set_printer_properties,
             commands::list_jobs,
             commands::job_action,
             commands::open_system,
