@@ -1,16 +1,14 @@
-//! Фоновое обнаружение сетевых принтеров по mDNS/DNS-SD (`_ipp._tcp`, `_pdl-datastream._tcp`).
-//! Чистый-Rust стек: крейт `mdns` — без системных зависимостей от Avahi/Bonjour.
+//! Фоновое обнаружение сетевых принтеров по mDNS/DNS-SD через `avahi-browse`.
+//! Надёжно работает на Linux (RED OS / RHEL) без дополнительных Rust-крейтов mDNS.
 
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
 use std::time::Duration;
-
-use async_std::stream::StreamExt;
-use async_std::task;
-use mdns::{RecordKind, Response};
 
 /// Событие обнаружения, отправляемое в UI.
 #[derive(Serialize, Clone, Debug)]
@@ -34,9 +32,6 @@ pub struct FoundPrinter {
 
 impl FoundPrinter {
     /// Рекомендуемый адрес веб-интерфейса принтера.
-    ///
-    /// Фронтенд строит URL своей реализацией (`webUrl` в `lib/api.ts`); метод
-    /// сохранён для полноты Rust API и потому помечен `allow(dead_code)`.
     #[allow(dead_code)]
     pub fn web_url(&self) -> Option<String> {
         let addr = self.addresses.first()?;
@@ -54,23 +49,18 @@ impl FoundPrinter {
 
 /// Состояние mDNS-сканера: команда start/stop + очередь событий для UI.
 ///
-/// Запуск каждого типа сервиса (`_ipp._tcp`, `_pdl-datastream._tcp`,
-/// `_printer._tcp`) ведётся в отдельной задаче async-std, которая крутит
-/// поток ответов `mdns::discover::all()`. Остановка переводит флаг `running`
-/// в `false` — задачи видят его на следующем тайм-ауте потока и выходят.
-///
-/// `rx` обёрнут в `Mutex`, чтобы `Discovery: Sync` — этого требует `State<T>`
-/// в Tauri-командах и `Manager::state` в фоновом потоке.
+/// Запускает `avahi-browse --parsable --terminate` в отдельном потоке с
+/// периодом 5 секунд. Каждый найденный сервис отправляется в UI как `Found`.
 pub struct Discovery {
     running: Arc<AtomicBool>,
     tx: Sender<DiscoveryEvent>,
     rx: Mutex<Receiver<DiscoveryEvent>>,
-    handles: Mutex<Vec<task::JoinHandle<()>>>,
+    handles: Mutex<Vec<thread::JoinHandle<()>>>,
 }
 
 impl Discovery {
     pub fn new() -> Self {
-        let (tx, rx) = channel();
+        let (tx, rx) = std::sync::mpsc::channel();
         Self {
             running: Arc::new(AtomicBool::new(false)),
             tx,
@@ -83,8 +73,6 @@ impl Discovery {
         self.running.load(Ordering::SeqCst)
     }
 
-    /// Запускает прослушивание `_ipp._tcp`, `_pdl-datastream._tcp`,
-    /// `_printer._tcp` через чистый-Rust стек `mdns` (без Avahi).
     pub fn start(&self) -> Result<(), String> {
         if self.running.swap(true, Ordering::SeqCst) {
             return Ok(());
@@ -93,62 +81,23 @@ impl Discovery {
         let tx = self.tx.clone();
         let running = Arc::clone(&self.running);
 
-        let service_types = [
-            "_ipp._tcp.local.",
-            "_pdl-datastream._tcp.local.",
-            "_printer._tcp.local.",
-        ];
+        let handle = thread::spawn(move || {
+            while running.load(Ordering::SeqCst) {
+                let _ = scan_once(&tx);
+                thread::sleep(Duration::from_secs(5));
+            }
+        });
 
-        for service_type in service_types {
-            let tx = tx.clone();
-            let running = Arc::clone(&running);
-            let st = service_type.to_string();
-
-            let handle = task::spawn(async move {
-                match mdns::discover::all(&st, Duration::from_secs(30)) {
-                    Ok(discovery) => {
-                        let mut stream = Box::pin(discovery.listen());
-                        while running.load(Ordering::SeqCst) {
-                            match async_std::future::timeout(
-                                Duration::from_millis(500),
-                                StreamExt::next(&mut stream),
-                            )
-                            .await
-                            {
-                                Ok(Some(Ok(response))) => {
-                                    if let Some(printer) = parse_response(&response, &st) {
-                                        let _ = tx.send(DiscoveryEvent::Found(printer));
-                                    }
-                                }
-                                Ok(Some(Err(e))) => {
-                                    log::error!("mDNS discovery error for {st}: {e}");
-                                }
-                                Ok(None) => break,
-                                Err(_) => continue, // тайм-аут — проверяем флаг running
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Не удалось запустить обнаружение mDNS для {st}: {e}");
-                    }
-                }
-            });
-
-            self.handles.lock().unwrap().push(handle);
-        }
-
+        self.handles.lock().unwrap().push(handle);
         Ok(())
     }
 
     pub fn stop(&self) -> Result<(), String> {
         self.running.store(false, Ordering::SeqCst);
-        // Задачи увидят флаг `running == false` на следующем тайм-ауте
-        // потока (через ≤500 мс) и выйдут сами. Хендлы просто сбрасываем.
         self.handles.lock().unwrap().clear();
         Ok(())
     }
 
-    /// Неблокирующий приём событий для вызова из UI-потока.
     pub fn poll(&self) -> Vec<DiscoveryEvent> {
         let rx = self.rx.lock().unwrap();
         let mut out = Vec::new();
@@ -165,79 +114,97 @@ impl Default for Discovery {
     }
 }
 
-/// Разбирает один mDNS-ответ в `FoundPrinter`.
-///
-/// Ответ содержит набор DNS-записей (PTR, SRV, TXT, A/AAAA). Берём из них
-/// имя сервиса, хост, порт, адреса и TXT-поля. Если PTR-записи нет —
-/// ответ не является объявлением нужного типа сервиса и пропускается.
-fn parse_response(response: &Response, service_type: &str) -> Option<FoundPrinter> {
-    let mut fullname: Option<String> = None;
-    let mut instance: Option<String> = None;
-    let mut host: Option<String> = None;
-    let mut port: Option<u16> = None;
-    let mut srv_target: Option<String> = None;
-    let mut addresses: Vec<String> = Vec::new();
-    let mut txt: HashMap<String, String> = HashMap::new();
+/// Один проход сканирования: запускает avahi-browse и шлёт найденные принтеры в tx.
+fn scan_once(tx: &std::sync::mpsc::Sender<DiscoveryEvent>) -> Result<(), String> {
+    let output = Command::new("avahi-browse")
+        .args([
+            "--parsable",
+            "--terminate",
+            "-t",
+            "_ipp._tcp",
+            "-t",
+            "_pdl-datastream._tcp",
+            "-t",
+            "_printer._tcp",
+        ])
+        .output()
+        .map_err(|e| format!("avahi-browse не найден (установите пакет avahi): {e}"))?;
 
-    let service_type_dot = format!("{}.", service_type.trim_end_matches('.'));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut services: HashMap<String, FoundPrinter> = HashMap::new();
 
-    for record in response.records() {
-        match &record.kind {
-            RecordKind::PTR(target) => {
-                // PTR: имя сервиса (например, _ipp._tcp.local.) -> экземпляр
-                // (например, MyPrinter._ipp._tcp.local.)
-                if record.name == service_type || record.name == service_type_dot {
-                    fullname = Some(target.clone());
-                    let name = target.trim_end_matches('.');
-                    if let Some(rest) = name.strip_suffix(service_type.trim_end_matches('.')) {
-                        instance = Some(rest.trim_end_matches('.').to_string());
-                    } else {
-                        instance = Some(name.to_string());
+    for line in stdout.lines() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.is_empty() {
+            continue;
+        }
+
+        // Строка службы: interfaceprotocolnametypedomain-
+        if fields.len() >= 5 && !line.starts_with('\t') {
+            let _iface = fields[0];
+            let _proto = fields[1];
+            let name = fields[2].to_string();
+            let service_type = fields[3].to_string();
+
+            // Пропускаем не-принтеры (вse же мы фильтруем по -t, но на всякий случай)
+            if !service_type.contains("_tcp") {
+                continue;
+            }
+
+            let fullname = format!("{name}.{service_type}.local.");
+            let instance = name.clone();
+
+            services.insert(
+                fullname.clone(),
+                FoundPrinter {
+                    fullname,
+                    service_type,
+                    instance,
+                    host: String::new(),
+                    port: 0,
+                    addresses: Vec::new(),
+                    txt: HashMap::new(),
+                },
+            );
+        }
+        // Строка разрешения: \t hostname=... address=... port=... txt=...
+        else if line.starts_with('\t') && !services.is_empty() {
+            // Берём последнюю добавленную службу
+            let last_key = services.keys().last().cloned();
+            if let Some(key) = last_key {
+                if let Some(printer) = services.get_mut(&key) {
+                    for field in line.split('\t').skip(1) {
+                        if field.is_empty() {
+                            continue;
+                        }
+                        if let Some((k, v)) = field.split_once('=') {
+                            match k {
+                                "hostname" => printer.host = v.trim_end_matches('.').to_string(),
+                                "address" => {
+                                    printer.addresses = vec![v.to_string()];
+                                }
+                                "port" => printer.port = v.parse().unwrap_or(0),
+                                "txt" => {
+                                    for pair in v.split(';') {
+                                        if let Some((tk, tv)) = pair.split_once('=') {
+                                            printer.txt.insert(tk.to_string(), tv.to_string());
+                                        } else {
+                                            printer.txt.insert(pair.to_string(), String::new());
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                     }
+                    // Отправляем событие о найденном принтере
+                    let _ = tx.send(DiscoveryEvent::Found(printer.clone()));
                 }
             }
-            RecordKind::SRV { port: p, target, .. } => {
-                port = Some(*p);
-                srv_target = Some(target.clone());
-                if host.is_none() {
-                    host = Some(target.trim_end_matches('.').to_string());
-                }
-            }
-            RecordKind::TXT(entries) => {
-                for entry in entries {
-                    if let Some((k, v)) = entry.split_once('=') {
-                        txt.insert(k.to_string(), v.to_string());
-                    } else {
-                        txt.insert(entry.clone(), String::new());
-                    }
-                }
-            }
-            RecordKind::A(addr) => {
-                addresses.push(addr.to_string());
-            }
-            RecordKind::AAAA(addr) => {
-                addresses.push(addr.to_string());
-            }
-            _ => {}
         }
     }
 
-    let fullname = fullname?;
-    let instance = instance.unwrap_or_else(|| fullname.clone());
-    let host = host
-        .or_else(|| srv_target.clone().map(|t| t.trim_end_matches('.').to_string()))
-        .unwrap_or_default();
-    let port = port.unwrap_or(0);
-
-    Some(FoundPrinter {
-        fullname,
-        service_type: service_type.to_string(),
-        instance,
-        host,
-        port,
-        addresses,
-        txt,
-    })
+    Ok(())
 }
 
 #[cfg(test)]

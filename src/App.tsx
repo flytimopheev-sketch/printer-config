@@ -502,9 +502,17 @@ export default function App() {
         <span className="titlebar__title">Printer Config</span>
         <button
           type="button"
+          className="titlebar__btn titlebar__btn--min"
+          aria-label="Свернуть"
+          onClick={() => getCurrentWindow().minimize()}
+        >
+          −
+        </button>
+        <button
+          type="button"
           className="titlebar__btn titlebar__btn--close"
           aria-label="Закрыть"
-          onClick={() => window.close()}
+          onClick={() => getCurrentWindow().close()}
         >
           ✕
         </button>

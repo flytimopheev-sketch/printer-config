@@ -4,7 +4,6 @@ import { statusText } from "../App";
 
 interface JobCardProps {
   job: JobInfo;
-  printer: string;
   onAction: (printer: string, jobId: number, action: string) => void;
 }
 
@@ -40,7 +39,7 @@ function ActionButton({ tone = "primary", children, onClick }: ActionButtonProps
   );
 }
 
-export default function JobCard({ job, printer, onAction }: JobCardProps) {
+export default function JobCard({ job, onAction }: JobCardProps) {
   const total = job.totalPages;
   const printed = job.pagesPrinted;
 
@@ -52,7 +51,7 @@ export default function JobCard({ job, printer, onAction }: JobCardProps) {
       </div>
 
       <div className="job-card__meta">
-        <InfoLine label="Принтер">{printer}</InfoLine>
+        <InfoLine label="Принтер">{job.printer}</InfoLine>
         <InfoLine label="Пользователь">{job.user}</InfoLine>
         <InfoLine label="Тип">{job.datatype}</InfoLine>
         <InfoLine label="Дата">{job.submitted}</InfoLine>
@@ -68,18 +67,18 @@ export default function JobCard({ job, printer, onAction }: JobCardProps) {
       <div className="job-card__actions">
         {job.status !== 0 && (
           <>
-            <ActionButton tone="danger" onClick={() => onAction(printer, job.id, "cancel")}>
+            <ActionButton tone="danger" onClick={() => onAction(job.printer, job.id, "cancel")}>
               Отменить
             </ActionButton>
             <ActionButton
               tone={job.status === 1 ? "ghost" : "primary"}
-              onClick={() => onAction(printer, job.id, "pause")}
+              onClick={() => onAction(job.printer, job.id, "pause")}
             >
               {job.status === 1 ? "Продолжить" : "Пауза"}
             </ActionButton>
           </>
         )}
-        <ActionButton tone="ghost" onClick={() => onAction(printer, job.id, "restart")}>
+        <ActionButton tone="ghost" onClick={() => onAction(job.printer, job.id, "restart")}>
           Перезапустить
         </ActionButton>
       </div>

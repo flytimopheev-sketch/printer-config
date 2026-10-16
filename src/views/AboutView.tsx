@@ -34,8 +34,10 @@ export default function AboutView() {
         </ul>
 
         <p className="about-card__meta">
-          Лицензия: GPL-2.0-or-later · Связь:
-          <a href="mailto:flytimopheev@gmail.com">flytimopheev@gmail.com</a>
+          Лицензия: MIT · Связь:
+          <a href="mailto:flytimopheev@gmail.com" className="about-card__email">
+            flytimopheev@gmail.com
+          </a>
         </p>
       </div>
     </div>

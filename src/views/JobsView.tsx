@@ -83,12 +83,7 @@ export default function JobsView({
 
       <div className="job-list">
         {jobs.map((job) => (
-          <JobCard
-            key={job.id}
-            job={job}
-            printer={selectedPrinter ?? ""}
-            onAction={onJobAction}
-          />
+          <JobCard key={job.id} job={job} onAction={onJobAction} />
         ))}
       </div>
     </div>
