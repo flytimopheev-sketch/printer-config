@@ -1,6 +1,6 @@
 [package]
 name = "printer-config"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2021"
 license = "GPL-2.0-or-later"
 description = "Современный frameless-менеджер принтеров (Windows Spooler / Linux CUPS) — Rust/Tauri-реализация system-config-printer"
@@ -14,7 +14,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 env_logger = "0.11"
 log = "0.4"
-mdns-sd = "0.21"
+mdns = "3"
+async-std = "1"
 flume = "0.12"
 
 [target.'cfg(windows)'.dependencies]

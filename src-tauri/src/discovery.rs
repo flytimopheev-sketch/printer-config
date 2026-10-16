@@ -1,11 +1,16 @@
 //! Фоновое обнаружение сетевых принтеров по mDNS/DNS-SD (`_ipp._tcp`, `_pdl-datastream._tcp`).
+//! Чистый-Rust стек: крейт `mdns` — без системных зависимостей от Avahi/Bonjour.
 
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use mdns_sd::{ServiceDaemon, ServiceEvent};
+use async_std::stream::StreamExt;
+use async_std::task;
+use mdns::{RecordKind, Response};
 
 /// Событие обнаружения, отправляемое в UI.
 #[derive(Serialize, Clone, Debug)]
@@ -49,62 +54,97 @@ impl FoundPrinter {
 
 /// Состояние mDNS-сканера: команда start/stop + очередь событий для UI.
 ///
+/// Запуск каждого типа сервиса (`_ipp._tcp`, `_pdl-datastream._tcp`,
+/// `_printer._tcp`) ведётся в отдельной задаче async-std, которая крутит
+/// поток ответов `mdns::discover::all()`. Остановка переводит флаг `running`
+/// в `false` — задачи видят его на следующем тайм-ауте потока и выходят.
+///
 /// `rx` обёрнут в `Mutex`, чтобы `Discovery: Sync` — этого требует `State<T>`
 /// в Tauri-командах и `Manager::state` в фоновом потоке.
 pub struct Discovery {
-    daemon: Mutex<Option<ServiceDaemon>>,
+    running: Arc<AtomicBool>,
     tx: Sender<DiscoveryEvent>,
     rx: Mutex<Receiver<DiscoveryEvent>>,
+    handles: Mutex<Vec<task::JoinHandle<()>>>,
 }
 
 impl Discovery {
     pub fn new() -> Self {
         let (tx, rx) = channel();
         Self {
-            daemon: Mutex::new(None),
+            running: Arc::new(AtomicBool::new(false)),
             tx,
             rx: Mutex::new(rx),
+            handles: Mutex::new(Vec::new()),
         }
     }
 
     pub fn is_running(&self) -> bool {
-        self.daemon.lock().unwrap().is_some()
+        self.running.load(Ordering::SeqCst)
     }
 
-    /// Запускает прослушивание `_ipp._tcp` и `_pdl-datastream._tcp`.
+    /// Запускает прослушивание `_ipp._tcp`, `_pdl-datastream._tcp`,
+    /// `_printer._tcp` через чистый-Rust стек `mdns` (без Avahi).
     pub fn start(&self) -> Result<(), String> {
-        let mut guard = self.daemon.lock().unwrap();
-        if guard.is_some() {
+        if self.running.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-        let daemon = ServiceDaemon::new().map_err(|e| format!("mDNS-демон недоступен: {e}"))?;
 
-        // `_printer._tcp` — LPD-принтеры без IPP-объявления: расширяет
-        // обнаружение на старых/бюджетных моделях.
-        for service_type in [
+        let tx = self.tx.clone();
+        let running = Arc::clone(&self.running);
+
+        let service_types = [
             "_ipp._tcp.local.",
             "_pdl-datastream._tcp.local.",
             "_printer._tcp.local.",
-        ] {
-            let receiver = daemon
-                .browse(service_type)
-                .map_err(|e| format!("Не удалось прослушивать {service_type}: {e}"))?;
-            let tx = self.tx.clone();
+        ];
+
+        for service_type in service_types {
+            let tx = tx.clone();
+            let running = Arc::clone(&running);
             let st = service_type.to_string();
-            std::thread::spawn(move || run_listener(receiver, tx, st));
+
+            let handle = task::spawn(async move {
+                match mdns::discover::all(&st, Duration::from_secs(30)) {
+                    Ok(discovery) => {
+                        let mut stream = Box::pin(discovery.listen());
+                        while running.load(Ordering::SeqCst) {
+                            match async_std::future::timeout(
+                                Duration::from_millis(500),
+                                StreamExt::next(&mut stream),
+                            )
+                            .await
+                            {
+                                Ok(Some(Ok(response))) => {
+                                    if let Some(printer) = parse_response(&response, &st) {
+                                        let _ = tx.send(DiscoveryEvent::Found(printer));
+                                    }
+                                }
+                                Ok(Some(Err(e))) => {
+                                    log::error!("mDNS discovery error for {st}: {e}");
+                                }
+                                Ok(None) => break,
+                                Err(_) => continue, // тайм-аут — проверяем флаг running
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Не удалось запустить обнаружение mDNS для {st}: {e}");
+                    }
+                }
+            });
+
+            self.handles.lock().unwrap().push(handle);
         }
 
-        *guard = Some(daemon);
         Ok(())
     }
 
     pub fn stop(&self) -> Result<(), String> {
-        let mut guard = self.daemon.lock().unwrap();
-        if let Some(daemon) = guard.take() {
-            daemon
-                .shutdown()
-                .map_err(|e| format!("Не удалось остановить mDNS: {e}"))?;
-        }
+        self.running.store(false, Ordering::SeqCst);
+        // Задачи увидят флаг `running == false` на следующем тайм-ауте
+        // потока (через ≤500 мс) и выйдут сами. Хендлы просто сбрасываем.
+        self.handles.lock().unwrap().clear();
         Ok(())
     }
 
@@ -125,46 +165,79 @@ impl Default for Discovery {
     }
 }
 
-fn run_listener(
-    receiver: flume::Receiver<ServiceEvent>,
-    tx: Sender<DiscoveryEvent>,
-    service_type: String,
-) {
-    while let Ok(event) = receiver.recv() {
-        match event {
-            ServiceEvent::ServiceResolved(info) => {
-                let fullname = info.get_fullname().to_string();
-                let instance = fullname
-                    .strip_suffix(&service_type)
-                    .unwrap_or(&fullname)
-                    .trim_end_matches('.')
-                    .to_string();
-                let addresses: Vec<String> = info
-                    .get_addresses_v4()
-                    .iter()
-                    .map(|a| a.to_string())
-                    .collect();
-                let txt = info
-                    .get_properties()
-                    .iter()
-                    .map(|p| (p.key().to_string(), p.val_str().to_string()))
-                    .collect();
-                let _ = tx.send(DiscoveryEvent::Found(FoundPrinter {
-                    fullname,
-                    service_type: service_type.clone(),
-                    instance,
-                    host: info.get_hostname().trim_end_matches('.').to_string(),
-                    port: info.get_port(),
-                    addresses,
-                    txt,
-                }));
+/// Разбирает один mDNS-ответ в `FoundPrinter`.
+///
+/// Ответ содержит набор DNS-записей (PTR, SRV, TXT, A/AAAA). Берём из них
+/// имя сервиса, хост, порт, адреса и TXT-поля. Если PTR-записи нет —
+/// ответ не является объявлением нужного типа сервиса и пропускается.
+fn parse_response(response: &Response, service_type: &str) -> Option<FoundPrinter> {
+    let mut fullname: Option<String> = None;
+    let mut instance: Option<String> = None;
+    let mut host: Option<String> = None;
+    let mut port: Option<u16> = None;
+    let mut srv_target: Option<String> = None;
+    let mut addresses: Vec<String> = Vec::new();
+    let mut txt: HashMap<String, String> = HashMap::new();
+
+    let service_type_dot = format!("{}.", service_type.trim_end_matches('.'));
+
+    for record in response.records() {
+        match &record.kind {
+            RecordKind::PTR(target) => {
+                // PTR: имя сервиса (например, _ipp._tcp.local.) -> экземпляр
+                // (например, MyPrinter._ipp._tcp.local.)
+                if record.name == service_type || record.name == service_type_dot {
+                    fullname = Some(target.clone());
+                    let name = target.trim_end_matches('.');
+                    if let Some(rest) = name.strip_suffix(service_type.trim_end_matches('.')) {
+                        instance = Some(rest.trim_end_matches('.').to_string());
+                    } else {
+                        instance = Some(name.to_string());
+                    }
+                }
             }
-            ServiceEvent::ServiceRemoved(_, fullname) => {
-                let _ = tx.send(DiscoveryEvent::Removed { fullname });
+            RecordKind::SRV { port: p, target, .. } => {
+                port = Some(*p);
+                srv_target = Some(target.clone());
+                if host.is_none() {
+                    host = Some(target.trim_end_matches('.').to_string());
+                }
+            }
+            RecordKind::TXT(entries) => {
+                for entry in entries {
+                    if let Some((k, v)) = entry.split_once('=') {
+                        txt.insert(k.to_string(), v.to_string());
+                    } else {
+                        txt.insert(entry.clone(), String::new());
+                    }
+                }
+            }
+            RecordKind::A(addr) => {
+                addresses.push(addr.to_string());
+            }
+            RecordKind::AAAA(addr) => {
+                addresses.push(addr.to_string());
             }
             _ => {}
         }
     }
+
+    let fullname = fullname?;
+    let instance = instance.unwrap_or_else(|| fullname.clone());
+    let host = host
+        .or_else(|| srv_target.clone().map(|t| t.trim_end_matches('.').to_string()))
+        .unwrap_or_default();
+    let port = port.unwrap_or(0);
+
+    Some(FoundPrinter {
+        fullname,
+        service_type: service_type.to_string(),
+        instance,
+        host,
+        port,
+        addresses,
+        txt,
+    })
 }
 
 #[cfg(test)]

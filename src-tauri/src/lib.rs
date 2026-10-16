@@ -53,8 +53,23 @@ pub fn run() {
             commands::platform,
         ])
         .setup(|app| {
+            let app_handle = app.handle().clone();
+
+            // Обработчик закрытия главного окна: завершаем процесс чисто,
+            // чтобы фоновый поток mDNS не мешал выходу на Linux.
+            let window = app.get_webview_window("main").expect("главное окно не найдено");
+            let close_handle = app_handle.clone();
+            window.on_window_event(move |event| {
+                if matches!(
+                    event,
+                    tauri::WindowEvent::CloseRequested { .. }
+                ) {
+                    let _ = close_handle.exit(0);
+                }
+            });
+
             // Фоновый перенос событий mDNS в окно.
-            let handle = app.handle().clone();
+            let handle = app_handle.clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 let discovery = handle.state::<Discovery>();

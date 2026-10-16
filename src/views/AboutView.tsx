@@ -1,34 +1,4 @@
-import { useEffect, useState } from "react";
-import { getVersion } from "@tauri-apps/api/app";
-
-interface AboutViewProps {
-  /** `windows` | `linux` | `macos` — пробрасывается из App. */
-  os: string;
-}
-
-/** Подпись ОС, симметричная platformLabel() в App.tsx. */
-function platformLabel(os: string): string {
-  switch (os) {
-    case "windows":
-      return "Windows";
-    case "linux":
-      return "Linux / RedOS";
-    case "macos":
-      return "macOS";
-    default:
-      return os;
-  }
-}
-
-export default function AboutView({ os }: AboutViewProps) {
-  // Версия берётся из tauri.conf.json, а не хардкодится: раньше здесь было
-  // застывшее «0.1.0», расходящееся с реальным номером релиза.
-  const [version, setVersion] = useState("…");
-
-  useEffect(() => {
-    getVersion().then(setVersion).catch(() => setVersion("—"));
-  }, []);
-
+export default function AboutView() {
   return (
     <div className="view">
       <div className="view__header">
@@ -40,31 +10,32 @@ export default function AboutView({ os }: AboutViewProps) {
 
       <div className="about-card">
         <p className="about-card__lead">
-          <b>Printer Config</b> — это локальное десктоп-приложение для управления
-          печатными устройствами на Windows и Linux (Red Hat / RedOS).
+          <b>Printer Config</b> — локальное десктоп-приложение для управления
+          сетевыми и локальными принтерами (CUPS/IPP, Windows Spooler).
         </p>
 
         <ul className="about-card__list">
           <li>
-            <strong>Список принтеров:</strong> чтение и изменение параметров через
-            Windows Spooler API либо CUPS (lpstat / lpadmin).
+            <strong>Управление очередями CUPS:</strong> добавление, удаление,
+            включение/выключение, настройка через lpadmin / lpoptions.
           </li>
           <li>
-            <strong>Очередь заданий:</strong> просмотр, отмена, пауза и перезапуск
-            заданий на выбранном принтере.
+            <strong>Параметры принтера:</strong> состояние, уровень тонера/чернил,
+            тестовая страница, опции PPD и опции заданий по умолчанию.
           </li>
           <li>
-            <strong>Обнаружение:</strong> автономное сканирование сети по протоколу
-            mDNS/DNS-SD для поиска сетевых принтеров.
+            <strong>Очередь заданий:</strong> просмотр, отмена, пауза и
+            перезапуск заданий на выбранном принтере.
           </li>
           <li>
-            <strong>Настройки:</strong> сохранение состояния приложения в
-            %APPDATA%\printer-config (Windows) или ~/.config/printer-config (Linux).
+            <strong>Обнаружение:</strong> сканирование сети по mDNS/DNS-SD для
+            поиска сетевых принтеров.
           </li>
         </ul>
 
         <p className="about-card__meta">
-          Версия: {version} · Платформа: {platformLabel(os)} · UI: React 19 + Tauri 2 · Backend: Rust
+          Лицензия: GPL-2.0-or-later · Связь:
+          <a href="mailto:flytimopheev@gmail.com">flytimopheev@gmail.com</a>
         </p>
       </div>
     </div>

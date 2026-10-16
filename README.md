@@ -14,7 +14,7 @@ Windows-клиент для управления принтерами и оче�
 
 ## Стек
 - **Фронтенд**: React 19, TypeScript, Vite 7, Tauri 2-Web-разработка (UI).
-- **Бэкенд**: Rust 1.98, Tauri 2, `winspool` (Windows Spooler API) + mDNS (`mdns_ssdp`/настраиваемый сканер).
+- **Бэкенд**: Rust 1.98, Tauri 2, `winspool` (Windows Spooler API) + mDNS/DNS-SD (чистый-Rust крейт `mdns`, без системных зависимостей от Avahi).
 
 ## Требования (Windows)
 - Windows 10/12 x64

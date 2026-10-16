@@ -610,7 +610,7 @@ export default function App() {
               }}
             />
           )}
-          {activeTab === "about" && <AboutView os={os} />}
+          {activeTab === "about" && <AboutView />}
         </main>
       </div>
 
