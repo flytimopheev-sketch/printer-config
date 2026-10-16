@@ -907,7 +907,7 @@ pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
 
     let is_default = run("lpstat", &["-d"])
         .ok()
-        .and(|d| parse_default(&d))
+        .and_then(|d| parse_default(&d))
         .map(|dn| dn == name)
         .unwrap_or(false);
 
