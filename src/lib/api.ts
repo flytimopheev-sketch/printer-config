@@ -82,6 +82,8 @@ export interface PrinterProperties {
   statusReasons: string[];
   shared: boolean;
   isDefault: boolean;
+  /** Принтер принимает задания (cupsenable); false — очередь остановлена. */
+  enabled: boolean;
   supplyLevels: SupplyLevel[];
   /** Все опции драйвера (из `lpoptions -l`), кроме опций задания. */
   printerOptions: PrinterOption[];

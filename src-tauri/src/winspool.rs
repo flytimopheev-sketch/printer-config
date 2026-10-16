@@ -149,6 +149,7 @@ pub struct PrinterProperties {
     pub status_reasons: Vec<String>,
     pub shared: bool,
     pub is_default: bool,
+    pub enabled: bool,
     pub supply_levels: Vec<SupplyLevel>,
     pub printer_options: Vec<PrinterOption>,
     pub job_options: Vec<PrinterOption>,

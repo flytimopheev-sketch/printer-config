@@ -454,6 +454,8 @@ pub struct PrinterProperties {
     pub status_reasons: Vec<String>,
     pub shared: bool,
     pub is_default: bool,
+    /// Принтер принимает задания (`cupsenable`); false — очередь остановлена.
+    pub enabled: bool,
     /// Уровни чернил/тонера (best-effort из IPP marker-*).
     pub supply_levels: Vec<SupplyLevel>,
     /// Все опции драйвера (из `lpoptions -l`), кроме опций задания.
@@ -471,6 +473,7 @@ const JOB_OPTION_KEYS: &[&str] = &[
     "sides",
     "print-color-mode",
     "print-quality",
+    "printer-resolution",
     "fit-to-page",
     "brightness",
     "page-ranges",
@@ -594,6 +597,16 @@ fn build_job_options(
             "print-quality",
             "Качество печати",
             &[("3", "Черновик"), ("4", "Обычное"), ("5", "Высокое")],
+        ),
+        (
+            "printer-resolution",
+            "Разрешение",
+            &[
+                ("300x300", "300 × 300 dpi"),
+                ("600x600", "600 × 600 dpi"),
+                ("1200x600", "1200 × 600 dpi"),
+                ("1200x1200", "1200 × 1200 dpi"),
+            ],
         ),
     ];
 
@@ -829,12 +842,12 @@ fn reason_label(r: &str) -> String {
 pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
     let attrs = cups_ipp_attributes(name);
 
-    let make_model = attrs
+    let mut make_model = attrs
         .get("printer-make-and-model")
         .and_then(|v| v.first())
         .cloned()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| ppd_make_model(name));
+        .unwrap_or_default();
 
     let mut location = attrs
         .get("printer-location")
@@ -870,7 +883,7 @@ pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
         })
         .collect();
 
-    let supply_levels = parse_supplies(&attrs);
+    let mut supply_levels = parse_supplies(&attrs);
 
     let uri = run("lpstat", &["-v"])
         .ok()
@@ -881,6 +894,37 @@ pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
                 .map(|(_, u)| u)
         })
         .unwrap_or_default();
+
+    // Raw-очередь не знает ни марки/модели, ни расходников — запрашиваем их
+    // напрямую у физического принтера по IPP (как system-config-printer).
+    let direct = direct_printer_attributes(&uri);
+    if make_model.is_empty() {
+        make_model = direct
+            .get("printer-make-and-model")
+            .and_then(|v| v.first())
+            .cloned()
+            .unwrap_or_default();
+    }
+    if make_model.is_empty() {
+        make_model = ppd_make_model(name);
+    }
+    if supply_levels.is_empty() {
+        supply_levels = parse_supplies(&direct);
+    }
+    if location.is_empty() {
+        location = direct
+            .get("printer-location")
+            .and_then(|v| v.first())
+            .cloned()
+            .unwrap_or_default();
+    }
+    if description.is_empty() {
+        description = direct
+            .get("printer-info")
+            .and_then(|v| v.first())
+            .cloned()
+            .unwrap_or_default();
+    }
 
     // Fallback на lpstat, если cupsd не дал место/описание.
     if location.is_empty() && description.is_empty() {
@@ -911,6 +955,12 @@ pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
         .map(|dn| dn == name)
         .unwrap_or(false);
 
+    // «Активен»: cupsdisable/cupsenable — то же, что пункт «Активен» в
+    // system-config-printer. `lpstat -p` печатает «disabled» для остановленной.
+    let enabled = run("lpstat", &["-p", name])
+        .map(|s| !s.to_lowercase().contains("disabled"))
+        .unwrap_or(true);
+
     let printer_options = build_all_printer_options(&cur_map, &list_map);
     let job_options = build_job_options(&cur_map, &list_map);
 
@@ -925,6 +975,7 @@ pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
         status_reasons,
         shared,
         is_default,
+        enabled,
         supply_levels,
         printer_options,
         job_options,
@@ -1163,6 +1214,63 @@ fn split_http_body(resp: &[u8]) -> Option<(&[u8], &[u8])> {
     resp.windows(4)
         .position(|w| w == b"\r\n\r\n")
         .map(|i| (&resp[..i], &resp[i + 4..]))
+}
+
+/// Прямой IPP-запрос Get-Printer-Attributes к физическому принтеру по его
+/// device-uri (`ipp://хост:631/ipp/print`). Нужен для raw-очередей: CUPS о
+/// них ничего не знает (ни марки/модели, ни расходников), а сам принтер —
+/// сообщает. Пустая карта для не-IPP адресов (`socket://`, `smb://`) и ошибок.
+fn direct_printer_attributes(uri: &str) -> HashMap<String, Vec<String>> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let mut out = HashMap::new();
+    let Some((scheme, rest)) = uri.split_once("://") else {
+        return out;
+    };
+    if !scheme.eq_ignore_ascii_case("ipp") && !scheme.eq_ignore_ascii_case("http") {
+        return out;
+    }
+    let default_port = 631u16;
+    let authority = rest.split('/').next().unwrap_or("");
+    if authority.is_empty() {
+        return out;
+    }
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => {
+            (h.to_string(), p.parse::<u16>().unwrap_or(default_port))
+        }
+        _ => (authority.to_string(), default_port),
+    };
+
+    let path = "/ipp/print";
+    let printer_uri = format!("ipp://{}:{port}{path}", fmt_host(&host));
+    let body = ipp_get_printer_attributes_bytes(&printer_uri);
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/ipp\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+
+    let Ok(mut sock) = TcpStream::connect((host.as_str(), port)) else {
+        return out;
+    };
+    let _ = sock.set_read_timeout(Some(Duration::from_secs(3)));
+    let _ = sock.set_write_timeout(Some(Duration::from_secs(3)));
+    if sock.write_all(req.as_bytes()).is_err() || sock.write_all(&body).is_err() {
+        return out;
+    }
+    let mut resp = Vec::new();
+    let _ = sock.read_to_end(&mut resp);
+    if let Some((_head, ipp)) = split_http_body(&resp) {
+        if ipp.len() >= 8 {
+            let status = u16::from_be_bytes([ipp[2], ipp[3]]);
+            if status < 0x0500 {
+                out = ipp_parse_attributes(ipp);
+            }
+        }
+    }
+    out
 }
 
 /// Проверка IPP-сервиса: POST `Get-Printer-Attributes` на `http://host:port{path}`.

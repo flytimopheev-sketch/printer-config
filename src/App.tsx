@@ -286,6 +286,23 @@ export default function App() {
       .catch((err) => showToast("error", errText(err, "Не удалось напечатать тестовую страницу")));
   }, [propsName, showToast]);
 
+  // --- «Активен»: cupsenable/cupsdisable (пункт меню system-config-printer) ---
+  const handleSetActive = useCallback(
+    async (active: boolean) => {
+      if (!propsName) return;
+      try {
+        await api.setPrinterPaused(propsName, !active);
+        showToast("success", active ? "Принтер активирован" : "Принтер деактивирован");
+        await refreshPrinters();
+        const data = await api.getPrinterProperties(propsName);
+        setPropsData(data);
+      } catch (err) {
+        showToast("error", errText(err, "Не удалось изменить состояние «Активен»"));
+      }
+    },
+    [propsName, showToast, refreshPrinters]
+  );
+
   // --- открытие веб-консоли принтера (embedded web server) ---
   const handleOpenWebConsole = useCallback(
     (name: string) => {
@@ -650,6 +667,7 @@ export default function App() {
           onClose={handleCloseProperties}
           onSave={handleSaveProperties}
           onPrintTestPage={handlePrintTestPage}
+          onSetActive={handleSetActive}
         />
       )}
 
