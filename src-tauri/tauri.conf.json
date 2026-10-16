@@ -43,7 +43,8 @@
           "desktop-file-utils",
           "webkit2gtk4.1",
           "gsettings-desktop-schemas",
-          "libnotify"
+          "libnotify",
+          "avahi"
         ]
       }
     }

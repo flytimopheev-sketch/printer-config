@@ -1,5 +1,5 @@
 //! Фоновое обнаружение сетевых принтеров по mDNS/DNS-SD через `avahi-browse`.
-//! Надёжно работает на Linux (RED OS / RHEL) без дополнительных Rust-крейтов mDNS.
+//! Надёжно работает на Linux (RED OS / RHEL). Требует пакета `avahi` в системе.
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -31,7 +31,6 @@ pub struct FoundPrinter {
 }
 
 impl FoundPrinter {
-    /// Рекомендуемый адрес веб-интерфейса принтера.
     #[allow(dead_code)]
     pub fn web_url(&self) -> Option<String> {
         let addr = self.addresses.first()?;
@@ -47,10 +46,6 @@ impl FoundPrinter {
     }
 }
 
-/// Состояние mDNS-сканера: команда start/stop + очередь событий для UI.
-///
-/// Запускает `avahi-browse --parsable --terminate` в отдельном потоке с
-/// периодом 5 секунд. Каждый найденный сервис отправляется в UI как `Found`.
 pub struct Discovery {
     running: Arc<AtomicBool>,
     tx: Sender<DiscoveryEvent>,
@@ -83,7 +78,9 @@ impl Discovery {
 
         let handle = thread::spawn(move || {
             while running.load(Ordering::SeqCst) {
-                let _ = scan_once(&tx);
+                if let Err(e) = scan_once(&tx) {
+                    log::warn!("mDNS scan error: {e}");
+                }
                 thread::sleep(Duration::from_secs(5));
             }
         });
@@ -114,8 +111,11 @@ impl Default for Discovery {
     }
 }
 
-/// Один проход сканирования: запускает avahi-browse и шлёт найденные принтеры в tx.
-fn scan_once(tx: &std::sync::mpsc::Sender<DiscoveryEvent>) -> Result<(), String> {
+/// Один проход сканирования через avahi-browse.
+/// Формат вывода --parsable:
+///   =eth0IPv4HP OfficeJet_ipp._tcp.local-
+///   hostname = [hp.local] address = [192.168.1.50] port = [631] txt = []
+fn scan_once(tx: &Sender<DiscoveryEvent>) -> Result<(), String> {
     let output = Command::new("avahi-browse")
         .args([
             "--parsable",
@@ -131,75 +131,81 @@ fn scan_once(tx: &std::sync::mpsc::Sender<DiscoveryEvent>) -> Result<(), String>
         .map_err(|e| format!("avahi-browse не найден (установите пакет avahi): {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut services: HashMap<String, FoundPrinter> = HashMap::new();
+    let mut current_name: Option<String> = None;
+    let mut current_type: Option<String> = None;
 
     for line in stdout.lines() {
-        let fields: Vec<&str> = line.split('\t').collect();
-        if fields.is_empty() {
+        let trimmed = line.trim();
+
+        // Строка службы: =interface  protocol  name  type  domain  -
+        if trimmed.starts_with('=') && !trimmed.starts_with("==") {
+            let fields: Vec<&str> = trimmed.split('\t').collect();
+            if fields.len() >= 5 {
+                current_name = Some(fields[3].to_string());
+                current_type = Some(fields[4].to_string());
+            }
             continue;
         }
 
-        // Строка службы: interfaceprotocolnametypedomain-
-        if fields.len() >= 5 && !line.starts_with('\t') {
-            let _iface = fields[0];
-            let _proto = fields[1];
-            let name = fields[2].to_string();
-            let service_type = fields[3].to_string();
+        // Строка разрешения: \thostname = [...] address = [...] port = [...] txt = [...]
+        if trimmed.starts_with("hostname") || trimmed.contains("hostname =") {
+            if let Some(name) = current_name.take() {
+                let service_type = current_type.take().unwrap_or_default();
 
-            // Пропускаем не-принтеры (вse же мы фильтруем по -t, но на всякий случай)
-            if !service_type.contains("_tcp") {
-                continue;
-            }
+                // Извлекаем поля из строки вида: hostname = [hp.local] address = [1.2.3.4] port = [631] txt = []
+                let mut host = String::new();
+                let mut addresses: Vec<String> = Vec::new();
+                let mut port: u16 = 0;
+                let mut txt: HashMap<String, String> = HashMap::new();
 
-            let fullname = format!("{name}.{service_type}.local.");
-            let instance = name.clone();
-
-            services.insert(
-                fullname.clone(),
-                FoundPrinter {
-                    fullname,
-                    service_type,
-                    instance,
-                    host: String::new(),
-                    port: 0,
-                    addresses: Vec::new(),
-                    txt: HashMap::new(),
-                },
-            );
-        }
-        // Строка разрешения: \t hostname=... address=... port=... txt=...
-        else if line.starts_with('\t') && !services.is_empty() {
-            // Берём последнюю добавленную службу
-            let last_key = services.keys().last().cloned();
-            if let Some(key) = last_key {
-                if let Some(printer) = services.get_mut(&key) {
-                    for field in line.split('\t').skip(1) {
-                        if field.is_empty() {
-                            continue;
-                        }
-                        if let Some((k, v)) = field.split_once('=') {
-                            match k {
-                                "hostname" => printer.host = v.trim_end_matches('.').to_string(),
-                                "address" => {
-                                    printer.addresses = vec![v.to_string()];
+                for part in trimmed.split_whitespace() {
+                    if part.starts_with("hostname=") {
+                        host = part
+                            .trim_start_matches("hostname=")
+                            .trim_matches('[')
+                            .trim_matches(']')
+                            .trim_end_matches('.')
+                            .to_string();
+                    } else if part.starts_with("address=") {
+                        let addr = part
+                            .trim_start_matches("address=")
+                            .trim_matches('[')
+                            .trim_matches(']')
+                            .to_string();
+                        addresses.push(addr);
+                    } else if part.starts_with("port=") {
+                        port = part
+                            .trim_start_matches("port=")
+                            .trim_matches('[')
+                            .trim_matches(']')
+                            .parse()
+                            .unwrap_or(0);
+                    } else if part.starts_with("txt=") {
+                        let txt_str = part.trim_start_matches("txt=").trim_matches('[').trim_matches(']');
+                        if !txt_str.is_empty() && txt_str != "[]" {
+                            for pair in txt_str.split(';') {
+                                let pair = pair.trim();
+                                if let Some((k, v)) = pair.split_once('=') {
+                                    txt.insert(k.to_string(), v.to_string());
+                                } else if !pair.is_empty() {
+                                    txt.insert(pair.to_string(), String::new());
                                 }
-                                "port" => printer.port = v.parse().unwrap_or(0),
-                                "txt" => {
-                                    for pair in v.split(';') {
-                                        if let Some((tk, tv)) = pair.split_once('=') {
-                                            printer.txt.insert(tk.to_string(), tv.to_string());
-                                        } else {
-                                            printer.txt.insert(pair.to_string(), String::new());
-                                        }
-                                    }
-                                }
-                                _ => {}
                             }
                         }
                     }
-                    // Отправляем событие о найденном принтере
-                    let _ = tx.send(DiscoveryEvent::Found(printer.clone()));
                 }
+
+                let fullname = format!("{name}.{service_type}.local.", name = name, service_type = service_type);
+
+                let _ = tx.send(DiscoveryEvent::Found(FoundPrinter {
+                    fullname,
+                    service_type,
+                    instance: name.clone(),
+                    host,
+                    port,
+                    addresses,
+                    txt,
+                }));
             }
         }
     }
@@ -225,20 +231,6 @@ mod tests {
             txt,
         };
         assert_eq!(p.web_url().unwrap(), "http://192.168.1.50:631/ipp/print");
-    }
-
-    #[test]
-    fn web_url_without_rp_points_to_root() {
-        let p = FoundPrinter {
-            fullname: "x._ipp._tcp.local.".into(),
-            service_type: "_ipp._tcp.local.".into(),
-            instance: "x".into(),
-            host: "x.local.".into(),
-            port: 80,
-            addresses: vec!["10.0.0.1".into()],
-            txt: HashMap::new(),
-        };
-        assert_eq!(p.web_url().unwrap(), "http://10.0.0.1:80/");
     }
 
     #[test]

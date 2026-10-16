@@ -66,6 +66,7 @@ body {
   flex: 0 0 auto;
   /* Перетаскивание frameless-окна за заголовок (WebKitGTK/Tauri Linux) */
   -webkit-app-region: drag;
+  position: relative;
   z-index: 1;
 }
 
@@ -75,6 +76,7 @@ body {
   letter-spacing: 0.02em;
   color: var(--text-dim);
   flex: 1;
+  -webkit-app-region: drag;
 }
 
 .titlebar__btn {
