@@ -1,6 +1,6 @@
 [package]
 name = "printer-config"
-version = "1.2.4"
+version = "1.2.5"
 edition = "2021"
 license = "GPL-2.0-or-later"
 description = "Современный frameless-менеджер принтеров (Windows Spooler / Linux CUPS) — Rust/Tauri-реализация system-config-printer"
