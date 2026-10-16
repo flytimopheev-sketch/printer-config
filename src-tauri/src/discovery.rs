@@ -79,7 +79,13 @@ impl Discovery {
         }
         let daemon = ServiceDaemon::new().map_err(|e| format!("mDNS-демон недоступен: {e}"))?;
 
-        for service_type in ["_ipp._tcp.local.", "_pdl-datastream._tcp.local."] {
+        // `_printer._tcp` — LPD-принтеры без IPP-объявления: расширяет
+        // обнаружение на старых/бюджетных моделях.
+        for service_type in [
+            "_ipp._tcp.local.",
+            "_pdl-datastream._tcp.local.",
+            "_printer._tcp.local.",
+        ] {
             let receiver = daemon
                 .browse(service_type)
                 .map_err(|e| format!("Не удалось прослушивать {service_type}: {e}"))?;

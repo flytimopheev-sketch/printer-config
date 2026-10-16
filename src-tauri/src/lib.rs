@@ -40,6 +40,7 @@ pub fn run() {
             commands::add_printer_connection,
             commands::get_printer_properties,
             commands::set_printer_properties,
+            commands::print_test_page,
             commands::list_jobs,
             commands::job_action,
             commands::open_system,

@@ -478,6 +478,104 @@ body {
   margin-top: 4px;
 }
 
+/* ---------- Свойства принтера: состояние и расходники ---------- */
+.prop-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.prop-status__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex: none;
+}
+
+.prop-status__dot--idle {
+  background: var(--ok);
+}
+
+.prop-status__dot--processing {
+  background: var(--accent-hover);
+}
+
+.prop-status__dot--stopped {
+  background: var(--err);
+}
+
+.prop-status__label {
+  font-size: 14px;
+}
+
+.prop-static {
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+
+.prop-testpage {
+  margin: 12px 0 4px;
+}
+
+/* Уровень чернил/тонера */
+.supply {
+  margin-bottom: 10px;
+}
+
+.supply__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.supply__name {
+  color: var(--text);
+}
+
+.supply__status {
+  color: var(--text-dim);
+}
+
+.supply__status--low {
+  color: var(--warn);
+}
+
+.supply__status--empty {
+  color: var(--err);
+}
+
+.supply__track {
+  height: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.supply__fill {
+  height: 100%;
+  background: var(--ok);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.supply__fill--low {
+  background: var(--warn);
+}
+
+.supply__fill--empty,
+.supply__fill--not-installed {
+  background: var(--err);
+}
+
 /* ---------- Тосты ---------- */
 .toast-stack {
   position: fixed;

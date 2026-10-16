@@ -277,6 +277,15 @@ export default function App() {
     [propsName, showToast, refreshPrinters]
   );
 
+  // --- печать тестовой страницы из диалога свойств ---
+  const handlePrintTestPage = useCallback(() => {
+    if (!propsName) return;
+    api
+      .printTestPage(propsName)
+      .then(() => showToast("success", "Тестовая страница отправлена на печать"))
+      .catch((err) => showToast("error", errText(err, "Не удалось напечатать тестовую страницу")));
+  }, [propsName, showToast]);
+
   // --- открытие веб-консоли принтера (embedded web server) ---
   const handleOpenWebConsole = useCallback(
     (name: string) => {
@@ -409,6 +418,7 @@ export default function App() {
   const goBack = useCallback(() => {
     setActiveTab(returnTab);
     setConfig((prev) => ({ ...prev, tab: returnTab }));
+    setToasts([]); // не тащим тосты чужой вкладки («Обнаружение остановлено»)
   }, [returnTab]);
 
   const handleTabChange = useCallback(
@@ -420,6 +430,9 @@ export default function App() {
       setConfig((prev) => ({ ...prev, tab }));
       setJobs([]);
       setDiscovered([]);
+      // Тосты привязаны к контексту вкладки (например, «Обнаружение
+      // остановлено») — при переходе их показывать бессмысленно.
+      setToasts([]);
     },
     [activeTab]
   );
@@ -636,6 +649,7 @@ export default function App() {
           saving={propsSaving}
           onClose={handleCloseProperties}
           onSave={handleSaveProperties}
+          onPrintTestPage={handlePrintTestPage}
         />
       )}
 

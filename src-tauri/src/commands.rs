@@ -135,7 +135,7 @@ pub fn open_system(kind: String, name: Option<String>) -> Result<(), String> {
         "properties" | "preferences" | "queue" => format!("http://localhost:631/printers/{name}"),
         "add-wizard" => "http://localhost:631/admin".to_string(),
         "settings" => "http://localhost:631".to_string(),
-        "test-page" => return print_test_page(&name),
+        "test-page" => return print_test_page_unix(&name),
         other => return Err(format!("Неизвестный системный диалог: {other}")),
     };
     Command::new("xdg-open")
@@ -147,7 +147,7 @@ pub fn open_system(kind: String, name: Option<String>) -> Result<(), String> {
 
 /// Печатает простую тестовую страницу через `lp -d <принтер>`.
 #[cfg(unix)]
-fn print_test_page(printer: &str) -> Result<(), String> {
+fn print_test_page_unix(printer: &str) -> Result<(), String> {
     use std::process::Command;
 
     if printer.is_empty() {
@@ -173,6 +173,24 @@ fn print_test_page(printer: &str) -> Result<(), String> {
     } else {
         let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
         Err(if msg.is_empty() { "Не удалось отправить тестовую страницу".into() } else { msg })
+    }
+}
+
+/// Печать тестовой страницы из диалога свойств: Linux — `lp -d <принтер>`,
+/// Windows — системный диалог печати (`PrintUIEntry /k`).
+#[tauri::command]
+pub fn print_test_page(name: String) -> Result<(), String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("Не выбран принтер".into());
+    }
+    #[cfg(windows)]
+    {
+        open_system("test-page".to_string(), Some(name))
+    }
+    #[cfg(unix)]
+    {
+        print_test_page_unix(&name)
     }
 }
 

@@ -129,14 +129,29 @@ pub struct PrinterOption {
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct SupplyLevel {
+    pub name: String,
+    pub kind: String,
+    pub level: Option<u8>,
+    pub status: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct PrinterProperties {
     pub name: String,
     pub uri: String,
     pub driver: String,
+    pub make_model: String,
     pub location: String,
     pub description: String,
+    pub status: String,
+    pub status_reasons: Vec<String>,
     pub shared: bool,
-    pub options: Vec<PrinterOption>,
+    pub is_default: bool,
+    pub supply_levels: Vec<SupplyLevel>,
+    pub printer_options: Vec<PrinterOption>,
+    pub job_options: Vec<PrinterOption>,
 }
 
 // ---------------------------------------------------------------------------

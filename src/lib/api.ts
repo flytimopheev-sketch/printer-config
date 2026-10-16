@@ -59,14 +59,34 @@ export interface PrinterOption {
   choices: PrinterChoice[];
 }
 
+/** Уровень расходника (чернила/тонер) для диалога свойств. */
+export interface SupplyLevel {
+  name: string;
+  kind: string;
+  /** Заполнение 0–100 %; null, если принтер не сообщает процент. */
+  level: number | null;
+  /** `ok` | `low` | `empty` | `not-installed` | `unknown`. */
+  status: string;
+}
+
 export interface PrinterProperties {
   name: string;
   uri: string;
   driver: string;
+  /** «Марка и модель» (IPP printer-make-and-model либо PPD NickName). */
+  makeModel: string;
   location: string;
   description: string;
+  /** Состояние: `idle` | `processing` | `stopped` | `unknown`. */
+  status: string;
+  statusReasons: string[];
   shared: boolean;
-  options: PrinterOption[];
+  isDefault: boolean;
+  supplyLevels: SupplyLevel[];
+  /** Все опции драйвера (из `lpoptions -l`), кроме опций задания. */
+  printerOptions: PrinterOption[];
+  /** Опции задания по умолчанию (copies, sides, media, …). */
+  jobOptions: PrinterOption[];
 }
 
 export interface AppConfig {
@@ -116,6 +136,7 @@ export const api = {
     shared: boolean,
     options: Record<string, string>
   ) => invoke<void>("set_printer_properties", { name, location, description, shared, options }),
+  printTestPage: (name: string) => invoke<void>("print_test_page", { name }),
 
   listJobs: (printer: string) => invoke<JobInfo[]>("list_jobs", { printer }),
   jobAction: (printer: string, jobId: number, action: string) =>

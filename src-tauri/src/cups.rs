@@ -425,6 +425,18 @@ pub struct PrinterOption {
     pub choices: Vec<PrinterChoice>,
 }
 
+/// Уровень расходника (чернила/тонер) для диалога свойств.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SupplyLevel {
+    pub name: String,
+    pub kind: String,
+    /// Заполнение 0–100 %; `None`, если принтер не сообщает процент.
+    pub level: Option<u8>,
+    /// `ok` | `low` | `empty` | `not-installed` | `unknown`.
+    pub status: String,
+}
+
 /// Свойства принтера для диалога «Свойства».
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -432,23 +444,36 @@ pub struct PrinterProperties {
     pub name: String,
     pub uri: String,
     pub driver: String,
+    /// «Марка и модель» (IPP printer-make-and-model либо PPD NickName).
+    pub make_model: String,
     pub location: String,
     pub description: String,
+    /// Состояние: `idle` | `processing` | `stopped` | `unknown`.
+    pub status: String,
+    /// Причины состояния (человекочитаемо: «Тонер заканчивается» …).
+    pub status_reasons: Vec<String>,
     pub shared: bool,
-    pub options: Vec<PrinterOption>,
+    pub is_default: bool,
+    /// Уровни чернил/тонера (best-effort из IPP marker-*).
+    pub supply_levels: Vec<SupplyLevel>,
+    /// Все опции драйвера (из `lpoptions -l`), кроме опций задания.
+    pub printer_options: Vec<PrinterOption>,
+    /// Опции задания по умолчанию (copies, sides, media, …).
+    pub job_options: Vec<PrinterOption>,
 }
 
-/// Опции, которые показываем/разрешаем менять в диалоге свойств. Остальные
-/// (десятки служебных) намеренно скрыты, чтобы не перегружать UI.
-const EDITABLE_OPTIONS: &[&str] = &[
-    "PageSize",
-    "MediaType",
-    "Duplex",
-    "ColorModel",
-    "cupsPrintQuality",
-    "Resolution",
-    "InputSlot",
-    "OutputMode",
+/// Ключи опций, относящихся к заданию (job template), а не к драйверу.
+/// Их показываем отдельной секцией «Параметры задания».
+const JOB_OPTION_KEYS: &[&str] = &[
+    "copies",
+    "number-up",
+    "media",
+    "sides",
+    "print-color-mode",
+    "print-quality",
+    "fit-to-page",
+    "brightness",
+    "page-ranges",
 ];
 
 /// Разбор `lpoptions -p <имя>` → (ключ → текущее значение).
@@ -501,29 +526,28 @@ fn parse_lpoptions_list(text: &str) -> HashMap<String, (String, Vec<PrinterChoic
     map
 }
 
-/// Список изменяемых опций: пересекаем EDITABLE_OPTIONS с тем, что реально
-/// поддерживает принтер (по ключу без учёта регистра).
-fn build_editable_options(
+/// Все опции драйвера из `lpoptions -l`, кроме опций задания (JOB_OPTION_KEYS).
+/// Показываем весь список — пользователь просил «очень много параметров».
+fn build_all_printer_options(
     cur: &HashMap<String, String>,
     list: &HashMap<String, (String, Vec<PrinterChoice>)>,
 ) -> Vec<PrinterOption> {
+    let mut keys: Vec<String> = list.keys().cloned().collect();
+    keys.sort();
     let mut out = Vec::new();
-    for key in EDITABLE_OPTIONS {
+    for key in keys {
+        let lower = key.to_ascii_lowercase();
+        if JOB_OPTION_KEYS.iter().any(|j| j.eq_ignore_ascii_case(&lower)) {
+            continue; // опции задания показываем отдельно
+        }
+        let (label, choices) = list.get(&key).cloned().unwrap_or_default();
         let value = cur
             .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .find(|(k, _)| k.eq_ignore_ascii_case(&key))
             .map(|(_, v)| v.clone())
             .unwrap_or_default();
-        let (label, choices) = list
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(key))
-            .map(|(_, (l, c))| (l.clone(), c.clone()))
-            .unwrap_or_else(|| (key.to_string(), Vec::new()));
-        if choices.is_empty() && value.is_empty() {
-            continue; // опция принтеру недоступна
-        }
         out.push(PrinterOption {
-            key: key.to_string(),
+            key,
             label,
             value,
             choices,
@@ -532,12 +556,321 @@ fn build_editable_options(
     out
 }
 
-/// Чтение свойств принтера: `lpstat -l -p` (описание/место/PPD), `lpstat -v`
-/// (device-uri) и `lpoptions` (общий доступ + опции драйвера).
+/// Опции задания по умолчанию. Текущие значения — из `lpoptions -p`; варианты —
+/// из PPD (`lpoptions -l`), а для стандартных job-опций, которых может не быть
+/// в PPD, подставляем встроенный набор с человекочитаемыми подписями.
+fn build_job_options(
+    cur: &HashMap<String, String>,
+    list: &HashMap<String, (String, Vec<PrinterChoice>)>,
+) -> Vec<PrinterOption> {
+    // (ключ, подпись, встроенные варианты (значение, подпись)).
+    let specs: &[(&str, &str, &[(&str, &str)])] = &[
+        ("copies", "Количество копий", &[]),
+        (
+            "number-up",
+            "Копий на лист",
+            &[("1", "1"), ("2", "2"), ("4", "4"), ("9", "9"), ("16", "16")],
+        ),
+        (
+            "sides",
+            "Двусторонняя печать",
+            &[
+                ("one-sided", "Односторонняя"),
+                ("two-sided-long-edge", "Двусторонняя (длинный край)"),
+                ("two-sided-short-edge", "Двусторонняя (короткий край)"),
+            ],
+        ),
+        ("media", "Носитель (бумага)", &[]),
+        (
+            "print-color-mode",
+            "Режим цвета",
+            &[
+                ("auto", "Авто"),
+                ("color", "Цветной"),
+                ("monochrome", "Оттенки серого"),
+            ],
+        ),
+        (
+            "print-quality",
+            "Качество печати",
+            &[("3", "Черновик"), ("4", "Обычное"), ("5", "Высокое")],
+        ),
+    ];
+
+    let mut out = Vec::new();
+    for (key, label, builtin) in specs {
+        let value = cur
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
+
+        // Варианты: из PPD (медиа берём из media либо PageSize), иначе встроенные.
+        let mut from_ppd = list.get(*key).map(|(_, c)| c.clone()).unwrap_or_default();
+        if from_ppd.is_empty() && *key == "media" {
+            from_ppd = list.get("PageSize").map(|(_, c)| c.clone()).unwrap_or_default();
+        }
+        let choices: Vec<PrinterChoice> = if !from_ppd.is_empty() {
+            from_ppd
+        } else {
+            builtin
+                .iter()
+                .map(|(v, l)| PrinterChoice {
+                    value: v.to_string(),
+                    label: l.to_string(),
+                })
+                .collect()
+        };
+
+        // Подпись: из PPD (если есть), иначе переданная.
+        let opt_label = list
+            .get(*key)
+            .map(|(l, _)| l.clone())
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| label.to_string());
+
+        out.push(PrinterOption {
+            key: key.to_string(),
+            label: opt_label,
+            value,
+            choices,
+        });
+    }
+    out
+}
+
+/// Запрос IPP Get-Printer-Attributes к локальному cupsd — надёжный и независимый
+/// от локали источник make-model/места/описания/состояния/причин/расходников.
+fn cups_ipp_attributes(name: &str) -> HashMap<String, Vec<String>> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let mut out = HashMap::new();
+    let path = format!("/printers/{name}");
+    let printer_uri = format!("ipp://localhost:631{path}");
+    let body = ipp_get_printer_attributes_bytes(&printer_uri);
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: localhost:631\r\nContent-Type: application/ipp\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    for host in ["localhost", "127.0.0.1"] {
+        let Ok(mut sock) = TcpStream::connect((host, 631)) else {
+            continue;
+        };
+        let _ = sock.set_read_timeout(Some(Duration::from_secs(3)));
+        let _ = sock.set_write_timeout(Some(Duration::from_secs(3)));
+        if sock.write_all(req.as_bytes()).is_err() || sock.write_all(&body).is_err() {
+            continue;
+        }
+        let mut resp = Vec::new();
+        let _ = sock.read_to_end(&mut resp);
+        if let Some((_head, ipp)) = split_http_body(&resp) {
+            if ipp.len() >= 8 {
+                let status = u16::from_be_bytes([ipp[2], ipp[3]]);
+                if status < 0x0500 {
+                    out = ipp_parse_attributes(ipp);
+                    if !out.is_empty() {
+                        return out;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Разбор IPP-ответа: пропускает заголовок (8 байт) и собирает атрибуты
+/// (имя → список строковых значений). Целые/enum кодируются в десятичную строку.
+fn ipp_parse_attributes(ipp: &[u8]) -> HashMap<String, Vec<String>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    if ipp.len() < 8 {
+        return map;
+    }
+    let mut i = 8; // version(2) + status(2) + request-id(4)
+    let mut current: Option<String> = None;
+    while i < ipp.len() {
+        let tag = ipp[i];
+        i += 1;
+        if tag == 0x03 {
+            break; // end-of-attributes
+        }
+        if tag <= 0x0f {
+            continue; // delimiter-группа (operation/job/printer/unsupported)
+        }
+        if i + 2 > ipp.len() {
+            break;
+        }
+        let name_len = u16::from_be_bytes([ipp[i], ipp[i + 1]]) as usize;
+        i += 2;
+        let name = if name_len > 0 {
+            if i + name_len > ipp.len() {
+                break;
+            }
+            let n = String::from_utf8_lossy(&ipp[i..i + name_len]).into_owned();
+            i += name_len;
+            current = Some(n.clone());
+            n
+        } else {
+            // Дополнительное значение прежнего атрибута (name-length = 0).
+            match current.as_ref() {
+                Some(n) => n.clone(),
+                None => continue,
+            }
+        };
+        if i + 2 > ipp.len() {
+            break;
+        }
+        let val_len = u16::from_be_bytes([ipp[i], ipp[i + 1]]) as usize;
+        i += 2;
+        if i + val_len > ipp.len() {
+            break;
+        }
+        let val = decode_ipp_value(tag, &ipp[i..i + val_len]);
+        i += val_len;
+        map.entry(name).or_default().push(val);
+    }
+    map
+}
+
+/// Значение IPP-атрибута в строку: integer/enum (4 байта) → десятичное,
+/// остальное (text/name/keyword/uri) → UTF-8.
+fn decode_ipp_value(tag: u8, b: &[u8]) -> String {
+    match tag {
+        0x21 | 0x23 if b.len() >= 4 => i32::from_be_bytes([b[0], b[1], b[2], b[3]]).to_string(),
+        _ => String::from_utf8_lossy(b).into_owned(),
+    }
+}
+
+/// Уровни расходников из IPP marker-* атрибутов (best-effort).
+fn parse_supplies(attrs: &HashMap<String, Vec<String>>) -> Vec<SupplyLevel> {
+    let Some(names) = attrs.get("marker-names").filter(|v| !v.is_empty()) else {
+        return Vec::new();
+    };
+    let types = attrs.get("marker-types");
+    let levels = attrs.get("marker-levels");
+    let colors = attrs.get("marker-colors");
+    let mut out = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        let kind = types.and_then(|v| v.get(i)).cloned().unwrap_or_default();
+        let raw = levels
+            .and_then(|v| v.get(i))
+            .and_then(|s| s.parse::<i32>().ok());
+        // marker-levels: 0–100 %; −1 неизвестно; −3 не установлен; −4 неизвестно.
+        let level = raw.and_then(|l| u8::try_from(l).ok().filter(|p| *p <= 100));
+        let status = match raw {
+            Some(l) if l == 0 => "empty",
+            Some(l) if (1..=10).contains(&l) => "low",
+            Some(l) if l > 10 => "ok",
+            Some(l) if l == -3 => "not-installed",
+            _ => "unknown",
+        };
+        let display = colors
+            .and_then(|v| v.get(i))
+            .cloned()
+            .filter(|c| !c.is_empty())
+            .unwrap_or_else(|| name.clone());
+        out.push(SupplyLevel {
+            name: display,
+            kind,
+            level,
+            status: status.to_string(),
+        });
+    }
+    out
+}
+
+/// «Марка и модель» из PPD (`*NickName`), если IPP её не дал.
+fn ppd_make_model(name: &str) -> String {
+    let Ok(text) = std::fs::read_to_string(format!("/etc/cups/ppd/{name}.ppd")) else {
+        return String::new();
+    };
+    for line in text.lines() {
+        if let Some(rest) = line.trim().strip_prefix("*NickName:") {
+            return rest.trim().trim_matches('"').to_string();
+        }
+    }
+    String::new()
+}
+
+/// Человекочитаемая подпись причины состояния (printer-state-reasons).
+fn reason_label(r: &str) -> String {
+    let l = r.to_lowercase();
+    if l.contains("toner") && l.contains("empty") {
+        "Тонер исчерпан".into()
+    } else if l.contains("toner") && (l.contains("low") || l.contains("nearly")) {
+        "Тонер заканчивается".into()
+    } else if l.contains("marker-supply") && l.contains("empty") {
+        "Расходник исчерпан".into()
+    } else if l.contains("marker-supply") && l.contains("low") {
+        "Расходник заканчивается".into()
+    } else if l.contains("ink") && l.contains("low") {
+        "Чернила заканчиваются".into()
+    } else if l.contains("cover-open") {
+        "Крышка открыта".into()
+    } else if l.contains("media-empty") {
+        "Закончилась бумага".into()
+    } else if l.contains("media-jam") || l.contains("jam") {
+        "Замятие бумаги".into()
+    } else if l.contains("offline") {
+        "Принтер офлайн".into()
+    } else if l.contains("paused") {
+        "Приостановлен".into()
+    } else if l == "none" {
+        String::new()
+    } else {
+        r.to_string()
+    }
+}
+
+/// Чтение свойств принтера. Источники: локальный cupsd по IPP (надёжно и без
+/// локали) — make-model/место/описание/состояние/причины/расходники; `lpstat -v`
+/// — device-uri; `lpoptions` — общий доступ, текущие опции и их варианты.
 pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
-    let long = run("lpstat", &["-l", "-p", name]).unwrap_or_default();
-    let current = run("lpoptions", &["-p", name]).unwrap_or_default();
-    let list = run("lpoptions", &["-p", name, "-l"]).unwrap_or_default();
+    let attrs = cups_ipp_attributes(name);
+
+    let make_model = attrs
+        .get("printer-make-and-model")
+        .and_then(|v| v.first())
+        .cloned()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| ppd_make_model(name));
+
+    let mut location = attrs
+        .get("printer-location")
+        .and_then(|v| v.first())
+        .cloned()
+        .unwrap_or_default();
+    let mut description = attrs
+        .get("printer-info")
+        .and_then(|v| v.first())
+        .cloned()
+        .unwrap_or_default();
+
+    let status = match attrs
+        .get("printer-state")
+        .and_then(|v| v.first())
+        .map(String::as_str)
+    {
+        Some("3") => "idle",
+        Some("4") => "processing",
+        Some("5") => "stopped",
+        _ => "unknown",
+    }
+    .to_string();
+
+    let status_reasons: Vec<String> = attrs
+        .get("printer-state-reasons")
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|r| {
+            let label = reason_label(&r);
+            (!label.is_empty()).then_some(label)
+        })
+        .collect();
+
+    let supply_levels = parse_supplies(&attrs);
 
     let uri = run("lpstat", &["-v"])
         .ok()
@@ -549,25 +882,52 @@ pub fn get_printer_properties(name: &str) -> Result<PrinterProperties, String> {
         })
         .unwrap_or_default();
 
-    let details = parse_details(&long);
-    let (description, location, driver) = details.get(name).cloned().unwrap_or_default();
+    // Fallback на lpstat, если cupsd не дал место/описание.
+    if location.is_empty() && description.is_empty() {
+        let long = run("lpstat", &["-l", "-p", name]).unwrap_or_default();
+        if let Some((d, l, _)) = parse_details(&long).get(name) {
+            if description.is_empty() {
+                description = d.clone();
+            }
+            if location.is_empty() {
+                location = l.clone();
+            }
+        }
+    }
 
+    let current = run("lpoptions", &["-p", name]).unwrap_or_default();
+    let list = run("lpoptions", &["-p", name, "-l"]).unwrap_or_default();
     let cur_map = parse_lpoptions_current(&current);
+    let list_map = parse_lpoptions_list(&list);
+
     let shared = cur_map
         .get("printer-is-shared")
         .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
         .unwrap_or(false);
 
-    let options = build_editable_options(&cur_map, &parse_lpoptions_list(&list));
+    let is_default = run("lpstat", &["-d"])
+        .ok()
+        .and(|d| parse_default(&d))
+        .map(|dn| dn == name)
+        .unwrap_or(false);
+
+    let printer_options = build_all_printer_options(&cur_map, &list_map);
+    let job_options = build_job_options(&cur_map, &list_map);
 
     Ok(PrinterProperties {
         name: name.to_string(),
         uri,
-        driver,
+        driver: make_model.clone(),
+        make_model,
         location,
         description,
+        status,
+        status_reasons,
         shared,
-        options,
+        is_default,
+        supply_levels,
+        printer_options,
+        job_options,
     })
 }
 
