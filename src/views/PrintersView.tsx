@@ -44,7 +44,7 @@ export default function PrintersView({
       <div className="view__header">
         <div>
           <h2 className="view__title">Принтеры</h2>
-          <p className="view__sub">Управление локальными и сетевыми принтерами</p>
+          <p className="view__sub">Локальные и сетевые принтеры</p>
         </div>
         <div className="view__actions">
           <button
@@ -65,7 +65,7 @@ export default function PrintersView({
             Системный мастер
           </button>
           <button type="button" className="button button--primary" onClick={onAddClick}>
-            + Добавить сетевой принтер
+            + Добавить принтер
           </button>
         </div>
       </div>
