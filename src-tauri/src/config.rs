@@ -91,10 +91,12 @@ mod tests {
 
     #[test]
     fn roundtrip_json() {
-        let mut cfg = AppConfig::default();
-        cfg.tab = "jobs".into();
-        cfg.selected_printer = Some("HP LaserJet".into());
-        cfg.search = "hp".into();
+        let cfg = AppConfig {
+            tab: "jobs".into(),
+            selected_printer: Some("HP LaserJet".into()),
+            search: "hp".into(),
+            ..AppConfig::default()
+        };
         let json = serde_json::to_string(&cfg).unwrap();
         let back: AppConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(back, cfg);
@@ -106,7 +108,7 @@ mod tests {
         let cfg: AppConfig = serde_json::from_str(r#"{"tab":"discovery"}"#).unwrap();
         assert_eq!(cfg.tab, "discovery");
         assert_eq!(cfg.window_width, 920.0);
-        assert!(cfg.auto_discovery == false);
+        assert!(!cfg.auto_discovery);
     }
 
     #[test]

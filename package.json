@@ -3,11 +3,29 @@
   "private": true,
   "version": "1.2.5",
   "type": "module",
+  "license": "MIT",
+  "description": "Кроссплатформенный менеджер принтеров и очередей печати (Tauri 2 + React 19)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flytimopheev-sketch/printer-config.git"
+  },
+  "bugs": {
+    "url": "https://github.com/flytimopheev-sketch/printer-config/issues"
+  },
+  "homepage": "https://github.com/flytimopheev-sketch/printer-config#readme",
+  "engines": {
+    "node": ">=20.19"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:build:rpm": "tauri build --bundles rpm",
+    "tauri:build:nsis": "tauri build --bundles nsis"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

@@ -29,10 +29,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["rpm"],
     "category": "Utility",
-    "shortDescription": "Современный frameless-менеджер принтеров",
-    "longDescription": "Printer Config — современный frameless-менеджер принтеров на Rust/Tauri: очереди CUPS/IPP, mDNS-обнаружение сетевых принтеров, драйверы и политики печати.",
+    "shortDescription": "Менеджер принтеров и очередей печати",
+    "longDescription": "Printer Config — настольный менеджер принтеров на Rust/Tauri: очереди CUPS/IPP, общий доступ, свойства принтера, управление заданиями и обнаружение сетевых принтеров по mDNS/DNS-SD.",
+    "publisher": "flytimopheev-sketch",
+    "homepage": "https://github.com/flytimopheev-sketch/printer-config",
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "linux": {
       "rpm": {

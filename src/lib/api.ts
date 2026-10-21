@@ -190,8 +190,15 @@ export function printerHost(uri: string): string | null {
   return host || null;
 }
 
-/** Веб-консоль (embedded web server) принтера: `http://<хост>/`. */
+/** Веб-консоль (embedded web server) принтера: `http://<хост>/`.
+ *
+ *  Понимает и device-uri CUPS (`ipp://192.168.1.50:631/ipp/print`), и имена
+ *  портов Windows (`IP_192.168.1.50`, `192.168.1.50`), где адрес известен
+ *  только у сетевых принтеров. */
 export function printerWebUrl(uri: string): string | null {
   const host = printerHost(uri);
-  return host ? `http://${host}/` : null;
+  if (host) return `http://${host}/`;
+  const windows = uri.trim().match(/^(?:IP_)?(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if (windows) return `http://${windows[1]}/`;
+  return null;
 }

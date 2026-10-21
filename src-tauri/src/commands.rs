@@ -100,11 +100,29 @@ pub fn open_system(kind: String, name: Option<String>) -> Result<(), String> {
     use std::process::Command;
 
     let name = name.unwrap_or_default();
+    // Имя принтера передаётся в кавычках: у принтеров с пробелами в имени
+    // (`/nHP LaserJet`) PrintUIEntry не находит очередь.
     let args: Vec<String> = match kind.as_str() {
-        "properties" => vec!["printui.dll,PrintUIEntry".into(), "/p".into(), format!("/n{name}")],
-        "queue" => vec!["printui.dll,PrintUIEntry".into(), "/o".into(), format!("/n{name}")],
-        "preferences" => vec!["printui.dll,PrintUIEntry".into(), "/e".into(), format!("/n{name}")],
-        "test-page" => vec!["printui.dll,PrintUIEntry".into(), "/k".into(), format!("/n{name}")],
+        "properties" => vec![
+            "printui.dll,PrintUIEntry".into(),
+            "/p".into(),
+            format!("/n\"{name}\""),
+        ],
+        "queue" => vec![
+            "printui.dll,PrintUIEntry".into(),
+            "/o".into(),
+            format!("/n\"{name}\""),
+        ],
+        "preferences" => vec![
+            "printui.dll,PrintUIEntry".into(),
+            "/e".into(),
+            format!("/n\"{name}\""),
+        ],
+        "test-page" => vec![
+            "printui.dll,PrintUIEntry".into(),
+            "/k".into(),
+            format!("/n\"{name}\""),
+        ],
         "add-wizard" => vec!["printui.dll,PrintUIEntry".into(), "/il".into()],
         "settings" => {
             Command::new("cmd")
@@ -172,7 +190,11 @@ fn print_test_page_unix(printer: &str) -> Result<(), String> {
         Ok(())
     } else {
         let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(if msg.is_empty() { "Не удалось отправить тестовую страницу".into() } else { msg })
+        Err(if msg.is_empty() {
+            "Не удалось отправить тестовую страницу".into()
+        } else {
+            msg
+        })
     }
 }
 

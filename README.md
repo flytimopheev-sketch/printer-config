@@ -1,101 +1,203 @@
-# printer-config
+<div align="center">
 
-Windows-клиент для управления принтерами и очередями печати (Tauri 2 + React 19 + Vite).
+# 🖨️ Printer Config
 
-Поддерживаемые возможности:
-- Список принтеров/очередей и установка принтера по умолчанию.
-- Пакеты печати: перечисление, отмена, пауза/продолжение, перезапуск.
-- mDNS/DNS-SD-сканнер сетевых принтеров (ZeroConf).
-- Добавление сетевого принтера по IP: `192.168.1.50` (приложение само пробует
-  IPP-пути `/ipp/print`, `/ipp` и raw-порт 9100), `192.168.1.50/Очередь`,
-  UNC-путь или полный URI (`ipp://…`, `socket://…`).
-- Хранение конфигурации в `%APPDATA%\printer-config\config.json`.
-- Тёмная тема, всплывающие уведомления (toast), модальное окно добавления сетевого принтера.
+**Кроссплатформенный менеджер принтеров и очередей печати**
 
-## Стек
-- **Фронтенд**: React 19, TypeScript, Vite 7, Tauri 2-Web-разработка (UI).
-- **Бэкенд**: Rust 1.98, Tauri 2, `winspool` (Windows Spooler API) + mDNS/DNS-SD (чистый-Rust крейт `mdns`, без системных зависимостей от Avahi).
+Tauri 2 · React 19 · Rust · CUPS / Windows Spooler
 
-## Требования (Windows)
-- Windows 10/12 x64
-- Node.js 20+ + npm
-- Rust toolchain (выполнен `rustup`)
-- PowerShell 7 + .NET (Tauri v2)
+[![CI](https://github.com/flytimopheev-sketch/printer-config/actions/workflows/rust.yml/badge.svg)](https://github.com/flytimopheev-sketch/printer-config/actions/workflows/rust.yml)
+[![Release](https://img.shields.io/github/v/release/flytimopheev-sketch/printer-config?label=%D1%80%D0%B5%D0%BB%D0%B8%D0%B7&color=blue)](https://github.com/flytimopheev-sketch/printer-config/releases/latest)
+[![License: MIT](https://img.shields.io/badge/%D0%BB%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-green.svg)](LICENSE)
+[![Tauri](https://img.shields.io/badge/Tauri-2-orange?logo=tauri&logoColor=white)](https://tauri.app)
+[![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)](https://react.dev)
+[![Rust](https://img.shields.io/badge/Rust-1.90%2B-orange?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-## Разработка (Vite)
-```ps
-npm install
-npm run dev
-```
+[⬇️ Скачать](https://github.com/flytimopheev-sketch/printer-config/releases/latest) ·
+[🐛 Сообщить об ошибке](https://github.com/flytimopheev-sketch/printer-config/issues/new) ·
+[🤝 Участие в проекте](CONTRIBUTING.md)
 
-## Сборка
-```ps
-# фронтенд + бэкенд (Tauri)
-npm run build
+</div>
 
-# или по отдельности
-npm run build:frontend
-npm run build:tauri
-```
+![Скриншот приложения](screenshot-gui.jpg)
 
-## Запуск собранного
-```ps
-npm run preview
-```
+Printer Config — настольное приложение для управления принтерами и очередями
+печати. На Windows работает через Spooler API, на Linux (в том числе РЕД ОС) —
+через CUPS. Это один и тот же бинарник: RPM для РЕД ОС собирается из тех же
+исходников, что и Windows-версия.
 
-## GitHub и выпуск
-Шаблон репозитория уже содержит `dist/`, `README.md` и CI. После создания репозитория GitHub выполните:
+## Возможности
 
-```ps
-git remote add origin https://github.com/<user>/printer-config.git
-git branch -M main
-git push -u origin main
-```
+| Возможность                                        | Windows | Linux / РЕД ОС |
+| --------------------------------------------------- | :-----: | :-----------: |
+| Список принтеров, принтер по умолчанию               |   ✅    |      ✅       |
+| Очередь заданий: отмена, пауза, перезапуск           |   ✅    |      ✅       |
+| Общий доступ к принтеру                              |   ✅    |      ✅       |
+| Свойства принтера (место, описание, опции драйвера)  |   ❌    |      ✅       |
+| Уровень тонера/чернил, тестовая страница             |   ❌    |      ✅       |
+| Обнаружение сетевых принтеров по mDNS/DNS-SD         |   ✅    |      ✅       |
+| Веб-консоль принтера (embedded web server)           |   ✅    |      ✅       |
+| Добавление принтера                                  | UNC-путь | IP / очередь / URI / UNC |
 
-## Релиз под Red Hat Enterprise Linux / RedOS (RPM)
-Бэкенд кроссплатформенный: под Linux он работает через **CUPS** (`libcups` — команда `lp`,
-`lpadmin`, `lpinfo`, `cupsd`) и полностью покрывает очереди, задания, обнаружение и
-конфигурацию (`src-tauri/src/cups.rs`); под Windows — через Spooler API.
+Дополнительно: тёмная тема, frameless-окно с собственной строкой заголовка,
+всплывающие уведомления, сохранение состояния интерфейса между запусками.
 
-RPM собирается **нативно через Tauri** (`tauri build`, цель `rpm` в `tauri.conf.json`) —
-это один и тот же GUI-бинарник, что и под Windows, а не веб-обёртка. Сборка выполняется
-в контейнере `packaging/Dockerfile.build` (Fedora 37, glibc 2.36 = РЕД ОС 8.0, поэтому
-бинарник запускается без ошибки «GLIBC_x.xx not found»).
+## Как это работает
 
-### Автоматический релиз (GitHub Actions)
-Каждый тег `v*` запускает job `rpm` в `.github/workflows/rust.yml`:
-1. собирает контейнер из `packaging/Dockerfile.build`;
-2. выполняет `npm ci && npm run tauri build` внутри контейнера;
-3. прогоняет GUI smoke-тест под Xvfb (окно «Printer Config» обязано появиться);
-4. публикует `Printer-Config-<version>-<release>.<arch>.rpm` ассетом GitHub Release.
+Бэкенд выбирается на этапе компиляции — в одном приложении живут обе реализации:
+
+| Платформа | Бэкенд                              | Модуль                    |
+| --------- | ----------------------------------- | ------------------------- |
+| Windows   | Spooler API (`winspool.drv`)        | `src-tauri/src/winspool.rs` |
+| Linux     | CUPS: `lp`, `lpadmin`, `lpinfo`, `cupsd` | `src-tauri/src/cups.rs`     |
+
+Обнаружение принтеров по mDNS/DNS-SD тоже реализовано для обеих платформ:
+
+* **Linux / РЕД ОС** — через системную утилиту `avahi-browse` (пакет `avahi`);
+* **Windows** — через чистый Rust-крейт [`mdns`](https://crates.io/crates/mdns),
+  без установки Bonjour/Avahi в систему.
+
+Настройки интерфейса хранятся в JSON:
+
+* Windows — `%APPDATA%\printer-config\config.json`;
+* Linux — `$XDG_CONFIG_HOME/printer-config/config.json`
+  (по умолчанию `~/.config/printer-config/config.json`).
+
+## Установка
+
+### РЕД ОС / AlmaLinux / Fedora (RPM)
+
+Готовые сборки публикуются в [Releases](https://github.com/flytimopheev-sketch/printer-config/releases):
 
 ```sh
-git tag v1.0.0
-git push origin v1.0.0
+sudo dnf install -y "Printer-Config-"*.rpm
 ```
 
-### Локальная сборка RPM
+Зависимости пакета: `cups`, `cups-client`, `xdg-utils`, `desktop-file-utils`,
+`webkit2gtk4.1`, `gsettings-desktop-schemas`, `libnotify`, `avahi`.
+
+### Windows
+
+Готового инсталлятора пока нет — приложение собирается из исходников
+(инструкция ниже в разделе «Сборка»). Требуется Windows 10/11 x64.
+
+## Разработка
+
+Требования: Node.js 20.19+ (или 22.12+), npm, Rust 1.90+, а на Linux —
+системные библиотеки Tauri.
+
 ```sh
-# один раз: собрать образ
+npm install          # зависимости фронтенда
+npm run dev          # Vite-сервер с горячей перезагрузкой (без окна Tauri)
+npm run tauri:dev    # приложение целиком (окно Tauri + Vite)
+```
+
+### Полезные команды
+
+| Команда                    | Что делает                                        |
+| -------------------------- | ------------------------------------------------- |
+| `npm run build`            | Проверка типов (`tsc --noEmit`) + сборка фронтенда |
+| `npm run typecheck`        | Только проверка типов                             |
+| `npm run tauri:dev`        | Запуск приложения в режиме разработки              |
+| `npm run tauri:build`      | Сборка приложения и всех пакетов для текущей ОС    |
+| `npm run tauri:build:rpm`  | Сборка RPM-пакета (Linux)                          |
+| `npm run tauri:build:nsis` | Сборка NSIS-установщика (Windows)                  |
+
+### Сборка RPM локально
+
+RPM собирается в контейнере `packaging/Dockerfile.build` на базе Fedora 37:
+glibc 2.36 совпадает с РЕД ОС 8.0, поэтому бинарник запускается без ошибки
+«GLIBC_x.xx not found».
+
+```sh
+# один раз собрать образ
 docker build -f packaging/Dockerfile.build -t printer-build .
 
 # собрать .rpm (результат: src-tauri/target/release/bundle/rpm/*.rpm)
 docker run --rm -v "$PWD":/app -w /app printer-build \
-  bash -c 'npm ci && npm run tauri build'
+  bash -c 'npm ci && npm run tauri:build:rpm'
 ```
 
-Установка на РЕД ОС / AlmaLinux:
+### Сборка под Windows
+
 ```sh
-sudo dnf install -y "Printer-Config-"*.rpm
-# или через менеджер пакетов -> локальные файлы
+npm install
+npm run tauri:build:nsis   # или npm run tauri:build — установщик по умолчанию
 ```
 
-Зависимости RPM: `cups`, `cups-client`, `webkit2gtk4.1`, `gsettings-desktop-schemas`,
-`libnotify`, `xdg-utils`, `desktop-file-utils` (список задан в `src-tauri/tauri.conf.json`).
+Для сборки Tauri на Windows нужен [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)
+(предустановлен в Windows 11) и Visual Studio Build Tools с компонентом
+«Разработка классических приложений на C++».
 
-### Заметка про GLib-GIO-CRITICAL
-Сообщение вида `GLib-GIO-CRITICAL **: ... g_settings_schema_source_lookup: assertion 'source != NULL' failed`
-при запуске GTK/WebKit-приложений означает, что в системе не установлены GSettings-схемы
- GNOME. Пакет `gsettings-desktop-schemas` в зависимостях RPM решает эту проблему; если
-ошибка сохраняется — запустите приложение из терминала и пришлите полный текст строки
-(после таймстемпа идёт имя функции, оно и указывает причину).
+## Релизы
+
+Каждый тег `v*` запускает сборку RPM в CI и публикует
+`Printer-Config-<версия>-<релиз>.<arch>.rpm` в GitHub Releases:
+
+```sh
+git tag v1.3.0
+git push origin v1.3.0
+```
+
+Перед тегом обновите версию в трёх местах: `package.json`,
+`src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` — и добавьте запись
+в [CHANGELOG.md](CHANGELOG.md).
+
+## Структура проекта
+
+```
+.
+├── src/                     # фронтенд (React + TypeScript)
+│   ├── App.tsx              # корневой компонент, состояние и навигация
+│   ├── components/          # карточки принтеров/заданий, модальные окна, тосты
+│   ├── views/               # вкладки: принтеры, задания, обнаружение, о программе
+│   ├── lib/api.ts           # типизированные обёртки над Tauri invoke/event
+│   └── styles.css           # тёмная тема
+├── src-tauri/               # бэкенд (Rust + Tauri)
+│   ├── src/commands.rs      # Tauri-команды (мост UI ↔ бэкенд)
+│   ├── src/winspool.rs      # Windows: Spooler API
+│   ├── src/cups.rs          # Linux: CUPS
+│   ├── src/discovery.rs     # mDNS-обнаружение (avahi / чистый Rust)
+│   ├── src/config.rs        # сохранение настроек
+│   ├── tauri.conf.json      # конфигурация Tauri и параметры пакета
+│   └── Cargo.toml
+├── packaging/               # контейнер для сборки RPM
+├── reference/               # исходники GNOME system-config-printer (справочно)
+├── .github/workflows/       # CI: сборка, тесты, релиз RPM
+└── CHANGELOG.md             # история изменений
+```
+
+## Известные ограничения
+
+* **Свойства принтера** (уровень тонера, PPD-опции, тестовая страница)
+  реализованы только для Linux/CUPS. На Windows доступны базовые операции
+  со Spooler API.
+* **Добавление принтера на Windows** принимает только UNC-путь
+  (`\\сервер\очередь`). Ввод IP-адреса, очереди или device-uri (`ipp://…`)
+  работает в Linux-версии.
+* **Обнаружение по mDNS** на Linux требует пакет `avahi`; без него вкладка
+  «Обнаружение» сообщит об ошибке, остальные функции приложения работают
+  нормально.
+* На РЕД ОС 8.0 при запуске может появляться
+  `GLib-GIO-CRITICAL … g_settings_schema_source_lookup` — это означает, что
+  не установлены GSettings-схемы GNOME. Помогает пакет
+  `gsettings-desktop-schemas` (он уже в зависимостях RPM).
+
+## Документация
+
+* [CONTRIBUTING.md](CONTRIBUTING.md) — как собрать проект и отправить PR.
+* [CHANGELOG.md](CHANGELOG.md) — что изменилось в каждом релизе.
+* [SECURITY.md](SECURITY.md) — как сообщить об уязвимости.
+* [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — правила участия в проекте.
+* [reference/README.md](reference/README.md) — оригинальный
+  `system-config-printer` (GNOME), для которого сделан этот проект.
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE). Файл `reference/system-config-printer.py`
+принадлежит проекту GNOME и распространяется по GPL-2.0; он включён только
+для сравнения реализаций и не входит в состав приложения.
+
+## Контакты
+
+flytimopheev@gmail.com

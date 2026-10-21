@@ -1,0 +1,44 @@
+name: Предложение
+description: Предложить новую функцию или улучшение
+title: "[Функция] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Опишите идею — обсудим, как её лучше реализовать.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу решает
+      description: Опишите проблему или сценарий, в котором не хватает функциональности
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое решение
+      description: Как это могло бы выглядеть в интерфейсе
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Платформа
+      options:
+        - Windows
+        - Linux / РЕД ОС
+        - Обе платформы
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы
+      description: Какие ещё способы решения вы рассматривали
+    validations:
+      required: false

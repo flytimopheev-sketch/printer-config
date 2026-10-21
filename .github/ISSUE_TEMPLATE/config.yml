@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ошибка
+    url: https://github.com/flytimopheev-sketch/printer-config/issues/new?template=bug_report.yml
+    about: Сообщить об ошибке в приложении
+  - name: Предложение
+    url: https://github.com/flytimopheev-sketch/printer-config/issues/new?template=feature_request.yml
+    about: Предложить новую функцию
+  - name: Уязвимость
+    url: https://github.com/flytimopheev-sketch/printer-config/security/advisories/new
+    about: Сообщить об уязвимости (не создавайте обычный issue)

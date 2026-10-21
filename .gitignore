@@ -9,11 +9,21 @@ src-tauri/target/
 src-tauri/debug/
 src-tauri/release/
 
+# Собранные дистрибутивы (релизы публикуются в GitHub Releases)
+dist-rpm/
+out/
+*.rpm
+*.msi
+*.exe
+*.AppImage
+*.deb
+
 # Local editor / tooling state
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
+.idea/
 
 # Logs and temp files
 *.log

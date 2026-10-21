@@ -1,4 +1,19 @@
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+
+import { api } from "../lib/api";
+
+const REPO_URL = "https://github.com/flytimopheev-sketch/printer-config";
+
 export default function AboutView() {
+  const [version, setVersion] = useState<string>("");
+
+  useEffect(() => {
+    getVersion()
+      .then(setVersion)
+      .catch(() => setVersion(""));
+  }, []);
+
   return (
     <div className="view">
       <div className="view__header">
@@ -34,9 +49,22 @@ export default function AboutView() {
         </ul>
 
         <p className="about-card__meta">
-          Лицензия: MIT · Связь:
+          {version && <>Версия {version} · </>}Лицензия: MIT · Связь:
           <a href="mailto:flytimopheev@gmail.com" className="about-card__email">
             flytimopheev@gmail.com
+          </a>
+        </p>
+
+        <p className="about-card__meta">
+          <a
+            href={REPO_URL}
+            className="about-card__email"
+            onClick={(e) => {
+              e.preventDefault();
+              api.openUrl(REPO_URL).catch(() => undefined);
+            }}
+          >
+            Исходный код и релизы: {REPO_URL}
           </a>
         </p>
       </div>

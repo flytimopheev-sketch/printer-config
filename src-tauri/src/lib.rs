@@ -5,13 +5,13 @@ mod config;
 mod discovery;
 
 #[cfg(windows)]
-mod sys;
-#[cfg(windows)]
 #[path = "winspool.rs"]
 mod backend;
 #[cfg(unix)]
 #[path = "cups.rs"]
 mod backend;
+#[cfg(windows)]
+mod sys;
 
 use discovery::Discovery;
 use tauri::Manager;
@@ -57,14 +57,13 @@ pub fn run() {
 
             // Обработчик закрытия главного окна: завершаем процесс чисто,
             // чтобы фоновый поток mDNS не мешал выходу на Linux.
-            let window = app.get_webview_window("main").expect("главное окно не найдено");
+            let window = app
+                .get_webview_window("main")
+                .expect("главное окно не найдено");
             let close_handle = app_handle.clone();
             window.on_window_event(move |event| {
-                if matches!(
-                    event,
-                    tauri::WindowEvent::CloseRequested { .. }
-                ) {
-                    let _ = close_handle.exit(0);
+                if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                    close_handle.exit(0);
                 }
             });
 

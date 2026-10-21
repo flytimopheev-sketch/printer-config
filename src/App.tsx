@@ -4,6 +4,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  type ReactNode,
 } from "react";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -16,6 +17,7 @@ import DiscoveryView from "./views/DiscoveryView";
 import AboutView from "./views/AboutView";
 import Toast from "./components/Toast";
 import PrinterPropertiesModal, { type PropertiesForm } from "./components/PrinterPropertiesModal";
+import { AboutIcon, DiscoveryIcon, JobsIcon, PrinterIcon } from "./components/icons";
 
 type Tab = "printers" | "jobs" | "discovery" | "about";
 
@@ -42,15 +44,23 @@ interface ToastMessage {
 interface NavItem {
   id: Tab;
   label: string;
-  icon: string;
+  icon: ReactNode;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "printers", label: "Принтеры", icon: "🖨️" },
-  { id: "jobs", label: "Задания", icon: "📄" },
-  { id: "discovery", label: "Обнаружение", icon: "🔍" },
-  { id: "about", label: "О программе", icon: "ℹ️" },
+  { id: "printers", label: "Принтеры", icon: <PrinterIcon /> },
+  { id: "jobs", label: "Задания", icon: <JobsIcon /> },
+  { id: "discovery", label: "Обнаружение", icon: <DiscoveryIcon /> },
+  { id: "about", label: "О программе", icon: <AboutIcon /> },
 ];
+
+/** Человекочитаемые сообщения по действиям над заданием печати. */
+const JOB_ACTION_TEXT: Record<string, string> = {
+  cancel: "Задание отменено",
+  pause: "Задание приостановлено",
+  resume: "Продолжение печати задания",
+  restart: "Задание перезапущено",
+};
 
 /** Коротко форматирует массив текстов статуса. */
 export function statusText(items: readonly string[], fallback = "Готов") {
@@ -84,7 +94,11 @@ export default function App() {
   const [propsData, setPropsData] = useState<PrinterProperties | null>(null);
   const [propsLoading, setPropsLoading] = useState(false);
   const [propsSaving, setPropsSaving] = useState(false);
-  const toastTimer = useRef<number | null>(null);
+  /** Таймеры автоскрытия тостов: у каждого тоста свой, иначе новый тост
+   *  «съедает» таймер предыдущего и тот остаётся на экране навсегда. */
+  const toastTimers = useRef<Map<number, number>>(new Map());
+  /** Таймер отложенного сохранения настроек (отдельно от таймеров тостов). */
+  const saveTimer = useRef<number | null>(null);
 
   // --- платформа сборки (для подписей ОС) ---
   useEffect(() => {
@@ -121,15 +135,17 @@ export default function App() {
 
   // --- сохранение настроек (дебаунс) ---
   useEffect(() => {
-    if (toastTimer.current !== null) {
-      window.clearTimeout(toastTimer.current);
+    if (saveTimer.current !== null) {
+      window.clearTimeout(saveTimer.current);
     }
-    toastTimer.current = window.setTimeout(() => {
+    saveTimer.current = window.setTimeout(() => {
+      saveTimer.current = null;
       saveConfig();
     }, 300);
     return () => {
-      if (toastTimer.current !== null) {
-        window.clearTimeout(toastTimer.current);
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
       }
     };
   }, [config]);
@@ -146,12 +162,27 @@ export default function App() {
   const showToast = useCallback((kind: ToastMessage["kind"], text: string) => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, kind, text }]);
-    if (toastTimer.current !== null) {
-      window.clearTimeout(toastTimer.current);
-    }
-    toastTimer.current = window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
+      toastTimers.current.delete(id);
     }, 3500);
+    toastTimers.current.set(id, timer);
+  }, []);
+
+  /** Убирает все тосты вместе с их таймерами (смена вкладки, размонтирование). */
+  const clearToasts = useCallback(() => {
+    toastTimers.current.forEach((timer) => window.clearTimeout(timer));
+    toastTimers.current.clear();
+    setToasts([]);
+  }, []);
+
+  // Таймеры тостов не должны сработать после размонтирования компонента.
+  useEffect(() => {
+    const timers = toastTimers.current;
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
   }, []);
 
   // --- принтеры ---
@@ -352,7 +383,10 @@ export default function App() {
     async (printer: string, jobId: number, action: string) => {
       try {
         await api.jobAction(printer, jobId, action);
-        showToast("success", action === "cancel" ? "Задание отменено" : `Задание ${action}нно`);
+        showToast(
+          "success",
+          JOB_ACTION_TEXT[action] ?? `Действие «${action}» выполнено`
+        );
         await refreshJobs(printer);
       } catch (err) {
         showToast("error", errText(err, "Не удалось выполнить действие"));
@@ -407,12 +441,6 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [pollDiscovery]);
 
-  useEffect(() => {
-    if (config.autoDiscovery && !discoveryRunning) {
-      startDiscovery();
-    }
-  }, [config.autoDiscovery, discoveryRunning]);
-
   const startDiscovery = useCallback(async () => {
     try {
       await api.startDiscovery();
@@ -431,12 +459,19 @@ export default function App() {
     }
   }, [showToast]);
 
+  useEffect(() => {
+    if (config.autoDiscovery && !discoveryRunning) {
+      startDiscovery();
+    }
+  }, [config.autoDiscovery, discoveryRunning, startDiscovery]);
+
   // --- навигация ---
   const goBack = useCallback(() => {
     setActiveTab(returnTab);
     setConfig((prev) => ({ ...prev, tab: returnTab }));
-    setToasts([]); // не тащим тосты чужой вкладки («Обнаружение остановлено»)
-  }, [returnTab]);
+    // не тащим тосты чужой вкладки («Обнаружение остановлено»)
+    clearToasts();
+  }, [returnTab, clearToasts]);
 
   const handleTabChange = useCallback(
     (tab: Tab) => {
@@ -449,9 +484,9 @@ export default function App() {
       setDiscovered([]);
       // Тосты привязаны к контексту вкладки (например, «Обнаружение
       // остановлено») — при переходе их показывать бессмысленно.
-      setToasts([]);
+      clearToasts();
     },
-    [activeTab]
+    [activeTab, clearToasts]
   );
 
   const addPrinterPath = useCallback(async () => {
@@ -534,7 +569,9 @@ export default function App() {
               const count = jobs.filter((j) => j.status !== 0).length;
               badge = count > 0 ? String(count) : null;
             } else if (item.id === "discovery") {
-              if (discoveryRunning) badge = "0";
+              // Индикатор работающего сканера (число найденных принтеров
+              // показано в самой вкладке «Обнаружение»).
+              if (discoveryRunning) badge = "●";
             }
             return (
               <button
@@ -543,9 +580,17 @@ export default function App() {
                 className={`nav-item${active ? " nav-item--active" : ""}`}
                 onClick={() => handleTabChange(item.id)}
               >
-                <span>{item.icon}</span>
+                <span className="nav-item__icon">{item.icon}</span>
                 <span>{item.label}</span>
-                {badge !== null && <span className="nav-item__badge">{badge}</span>}
+                {badge !== null && (
+                  <span
+                    className={`nav-item__badge${
+                      item.id === "discovery" ? " nav-item__badge--live" : ""
+                    }`}
+                  >
+                    {badge}
+                  </span>
+                )}
               </button>
             );
           })}

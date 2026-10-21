@@ -1,0 +1,71 @@
+name: Ошибка
+description: Сообщить об ошибке в Printer Config
+title: "[Ошибка] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за отчёт! Пожалуйста, заполните поля ниже — это сильно
+        ускоряет разбор. Подробности об уязвимостях — в
+        [SECURITY.md](../blob/main/SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия приложения
+      description: Указана в диалоге «О программе» (например, 1.2.5)
+      placeholder: "1.2.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: ОС
+      options:
+        - РЕД ОС 8
+        - РЕД ОС 7
+        - AlmaLinux / Rocky / Fedora
+        - Другой Linux
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+
+  - type: input
+    id: cups
+    attributes:
+      label: Версия CUPS (только для Linux)
+      description: Вывод команды `cups-config --version` или `lpstat -v`
+      placeholder: "cups 2.3.3"
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Что произошло
+      description: Описание ошибки и ожидаемого поведения
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Шаги воспроизведения
+      description: Минимальный набор шагов, при котором ошибка воспроизводится
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Вывод приложения из терминала
+      description: |
+        Запустите приложение из терминала и приложите вывод с момента
+        воспроизведения ошибки.
+      render: shell
+    validations:
+      required: false

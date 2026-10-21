@@ -186,7 +186,10 @@ pub fn printer_status_text(status: u32) -> Vec<String> {
         (PRINTER_STATUS_POWER_SAVE, "Энергосбережение"),
         (PRINTER_STATUS_SERVER_OFFLINE, "Сервер офлайн"),
         (PRINTER_STATUS_SERVER_UNKNOWN, "Сервер неизвестен"),
-        (PRINTER_STATUS_DRIVER_UPDATE_NEEDED, "Нужно обновление драйвера"),
+        (
+            PRINTER_STATUS_DRIVER_UPDATE_NEEDED,
+            "Нужно обновление драйвера",
+        ),
     ];
     let mut out: Vec<String> = all
         .iter()
@@ -282,7 +285,15 @@ pub fn list_printers() -> Result<Vec<PrinterInfo>, String> {
     let mut needed: u32 = 0;
     let mut count: u32 = 0;
     unsafe {
-        EnumPrintersW(flags, ptr::null(), 2, ptr::null_mut(), 0, &mut needed, &mut count)
+        EnumPrintersW(
+            flags,
+            ptr::null(),
+            2,
+            ptr::null_mut(),
+            0,
+            &mut needed,
+            &mut count,
+        )
     };
     if needed == 0 {
         return Err(sys::last_error_message());
@@ -290,14 +301,23 @@ pub fn list_printers() -> Result<Vec<PrinterInfo>, String> {
 
     let mut buf = WinBuffer::new(needed as usize);
     let ok = unsafe {
-        EnumPrintersW(flags, ptr::null(), 2, buf.as_mut_ptr(), needed, &mut needed, &mut count)
+        EnumPrintersW(
+            flags,
+            ptr::null(),
+            2,
+            buf.as_mut_ptr(),
+            needed,
+            &mut needed,
+            &mut count,
+        )
     };
     if ok == 0 {
         return Err(sys::last_error_message());
     }
 
-    let infos =
-        unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<PRINTER_INFO_2W>(), count as usize) };
+    let infos = unsafe {
+        std::slice::from_raw_parts(buf.as_ptr().cast::<PRINTER_INFO_2W>(), count as usize)
+    };
     let default = get_default_printer();
 
     Ok(infos
@@ -333,7 +353,11 @@ pub fn set_default_printer(name: &str) -> Result<(), String> {
 /// Пауза/возобновление очереди (`SetPrinter` с `PRINTER_CONTROL_*`).
 pub fn set_printer_paused(name: &str, paused: bool) -> Result<(), String> {
     let handle = open_printer(name, PRINTER_ALL_ACCESS)?;
-    let command = if paused { PRINTER_CONTROL_PAUSE } else { PRINTER_CONTROL_RESUME };
+    let command = if paused {
+        PRINTER_CONTROL_PAUSE
+    } else {
+        PRINTER_CONTROL_RESUME
+    };
     if unsafe { SetPrinterW(handle.0, 0, ptr::null(), command) } == 0 {
         return Err(format!(
             "Не удалось изменить состояние «{name}»: {}",
@@ -430,14 +454,34 @@ pub fn list_jobs(printer: &str) -> Result<Vec<JobInfo>, String> {
     let handle = open_printer(printer, 0)?;
     let mut needed: u32 = 0;
     let mut count: u32 = 0;
-    unsafe { EnumJobsW(handle.0, 0, 0xFFFF, 1, ptr::null_mut(), 0, &mut needed, &mut count) };
+    unsafe {
+        EnumJobsW(
+            handle.0,
+            0,
+            0xFFFF,
+            1,
+            ptr::null_mut(),
+            0,
+            &mut needed,
+            &mut count,
+        )
+    };
     if needed == 0 {
         // Нет заданий — это не ошибка.
         return Ok(Vec::new());
     }
     let mut buf = WinBuffer::new(needed as usize);
     let ok = unsafe {
-        EnumJobsW(handle.0, 0, 0xFFFF, 1, buf.as_mut_ptr(), needed, &mut needed, &mut count)
+        EnumJobsW(
+            handle.0,
+            0,
+            0xFFFF,
+            1,
+            buf.as_mut_ptr(),
+            needed,
+            &mut needed,
+            &mut count,
+        )
     };
     if ok == 0 {
         return Err(format!(
@@ -523,7 +567,10 @@ mod tests {
 
     #[test]
     fn job_status_printing() {
-        assert_eq!(job_status_text(JOB_STATUS_PRINTING), vec!["Печать".to_string()]);
+        assert_eq!(
+            job_status_text(JOB_STATUS_PRINTING),
+            vec!["Печать".to_string()]
+        );
     }
 
     #[test]

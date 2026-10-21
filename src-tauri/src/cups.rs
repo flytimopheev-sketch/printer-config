@@ -89,7 +89,10 @@ fn run(prog: &str, args: &[&str]) -> Result<String, String> {
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let msg = if !stderr.is_empty() { stderr } else { stdout };
         Err(if msg.is_empty() {
-            format!("{prog} завершился с кодом {}", out.status.code().unwrap_or(-1))
+            format!(
+                "{prog} завершился с кодом {}",
+                out.status.code().unwrap_or(-1)
+            )
         } else {
             msg
         })
@@ -227,9 +230,13 @@ fn parse_details(text: &str) -> HashMap<String, (String, String, String)> {
             }
             continue;
         }
-        let Some(key) = current.as_ref() else { continue };
+        let Some(key) = current.as_ref() else {
+            continue;
+        };
         let trimmed = line.trim();
-        let Some((k, v)) = trimmed.split_once(':') else { continue };
+        let Some((k, v)) = trimmed.split_once(':') else {
+            continue;
+        };
         let k = k.trim().to_lowercase();
         let v = v.trim().to_string();
         let entry = map.entry(key.clone()).or_default();
@@ -330,8 +337,7 @@ pub fn list_printers() -> Result<Vec<PrinterInfo>, String> {
             .find(|(n, _)| *n == name)
             .map(|(_, u)| u.clone())
             .unwrap_or_default();
-        let (comment, location, driver) =
-            details_map.get(&name).cloned().unwrap_or_default();
+        let (comment, location, driver) = details_map.get(&name).cloned().unwrap_or_default();
         let shared = is_shared(&name);
         let network = is_network_uri(&uri);
 
@@ -347,7 +353,14 @@ pub fn list_printers() -> Result<Vec<PrinterInfo>, String> {
         if shared {
             attribute_text.push("Общий доступ".to_string());
         }
-        attribute_text.push(if network { "Сетевой" } else { "Локальный" }.to_string());
+        attribute_text.push(
+            if network {
+                "Сетевой"
+            } else {
+                "Локальный"
+            }
+            .to_string(),
+        );
 
         let mut attributes = if network { ATTR_NETWORK } else { ATTR_LOCAL };
         if shared {
@@ -393,7 +406,10 @@ pub fn set_printer_paused(name: &str, paused: bool) -> Result<(), String> {
 
 pub fn set_printer_shared(name: &str, shared: bool) -> Result<(), String> {
     let value = if shared { "true" } else { "false" };
-    run_admin_quiet("lpadmin", &["-p", name, "-o", &format!("printer-is-shared={value}")])
+    run_admin_quiet(
+        "lpadmin",
+        &["-p", name, "-o", &format!("printer-is-shared={value}")],
+    )
 }
 
 pub fn delete_printer(name: &str) -> Result<(), String> {
@@ -506,7 +522,8 @@ fn parse_lpoptions_list(text: &str) -> HashMap<String, (String, Vec<PrinterChoic
             let (key, label) = head.split_once('/').unwrap_or((head, head));
             let key = key.trim().to_string();
             let label = label.trim().to_string();
-            map.entry(key.clone()).or_insert_with(|| (label, Vec::new()));
+            map.entry(key.clone())
+                .or_insert_with(|| (label, Vec::new()));
             current = Some(key);
         } else if let Some(key) = current.as_ref() {
             if trimmed.is_empty() {
@@ -540,7 +557,10 @@ fn build_all_printer_options(
     let mut out = Vec::new();
     for key in keys {
         let lower = key.to_ascii_lowercase();
-        if JOB_OPTION_KEYS.iter().any(|j| j.eq_ignore_ascii_case(&lower)) {
+        if JOB_OPTION_KEYS
+            .iter()
+            .any(|j| j.eq_ignore_ascii_case(&lower))
+        {
             continue; // опции задания показываем отдельно
         }
         let (label, choices) = list.get(&key).cloned().unwrap_or_default();
@@ -559,6 +579,13 @@ fn build_all_printer_options(
     out
 }
 
+/// Описание встроенной job-опции: (ключ, подпись, варианты (значение, подпись)).
+type JobOptionSpec = (
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str)],
+);
+
 /// Опции задания по умолчанию. Текущие значения — из `lpoptions -p`; варианты —
 /// из PPD (`lpoptions -l`), а для стандартных job-опций, которых может не быть
 /// в PPD, подставляем встроенный набор с человекочитаемыми подписями.
@@ -567,7 +594,7 @@ fn build_job_options(
     list: &HashMap<String, (String, Vec<PrinterChoice>)>,
 ) -> Vec<PrinterOption> {
     // (ключ, подпись, встроенные варианты (значение, подпись)).
-    let specs: &[(&str, &str, &[(&str, &str)])] = &[
+    let specs: &[JobOptionSpec] = &[
         ("copies", "Количество копий", &[]),
         (
             "number-up",
@@ -621,7 +648,10 @@ fn build_job_options(
         // Варианты: из PPD (медиа берём из media либо PageSize), иначе встроенные.
         let mut from_ppd = list.get(*key).map(|(_, c)| c.clone()).unwrap_or_default();
         if from_ppd.is_empty() && *key == "media" {
-            from_ppd = list.get("PageSize").map(|(_, c)| c.clone()).unwrap_or_default();
+            from_ppd = list
+                .get("PageSize")
+                .map(|(_, c)| c.clone())
+                .unwrap_or_default();
         }
         let choices: Vec<PrinterChoice> = if !from_ppd.is_empty() {
             from_ppd
@@ -772,10 +802,10 @@ fn parse_supplies(attrs: &HashMap<String, Vec<String>>) -> Vec<SupplyLevel> {
         // marker-levels: 0–100 %; −1 неизвестно; −3 не установлен; −4 неизвестно.
         let level = raw.and_then(|l| u8::try_from(l).ok().filter(|p| *p <= 100));
         let status = match raw {
-            Some(l) if l == 0 => "empty",
+            Some(0) => "empty",
             Some(l) if (1..=10).contains(&l) => "low",
             Some(l) if l > 10 => "ok",
-            Some(l) if l == -3 => "not-installed",
+            Some(-3) => "not-installed",
             _ => "unknown",
         };
         let display = colors
@@ -999,7 +1029,10 @@ pub fn set_printer_properties(
         "-D".into(),
         description.to_string(),
         "-o".into(),
-        format!("printer-is-shared={}", if shared { "true" } else { "false" }),
+        format!(
+            "printer-is-shared={}",
+            if shared { "true" } else { "false" }
+        ),
     ];
     for (k, v) in options {
         if k.trim().is_empty() || v.trim().is_empty() {
@@ -1047,11 +1080,11 @@ fn sh_quote(s: &str) -> String {
 ///    повторном добавлении шаги падают с «already exists».
 /// 3. Драйвер каскадом через `||` (БЕЗ преждевременного выхода): `everywhere`
 ///    → `raw` → без модели. Два ключевых момента:
-///    • `-m everywhere` оборачиваем в `timeout 20`: на CUPS 2.2.x он делает
+///    * `-m everywhere` оборачиваем в `timeout 20`: на CUPS 2.2.x он делает
 ///      СИНХРОННЫЙ IPP-пробинг принтера и может ЗАВИСНУТЬ — после ввода пароля
 ///      «ничего не происходит», очередь не создаётся. По таймауту (а также если
 ///      `timeout` отсутствует — код 127) `||` мгновенно переводит на `-m raw`.
-///    • `-m everywhere` может СОЗДАТЬ очередь, но вернуть ненулевой код — поэтому
+///    * `-m everywhere` может СОЗДАТЬ очередь, но вернуть ненулевой код — поэтому
 ///      источник истины это `lpstat -p` в конце, а не код одного lpadmin.
 /// 4. Затем **явно** `cupsenable` + `cupsaccept` — как делает cups-pk-helper.
 /// 5. В конце `lpstat -p` как источник истины и вывод РЕАЛЬНОЙ ошибки `lpadmin`.
@@ -1099,7 +1132,13 @@ fn add_with_uri(name: &str, uri: &str) -> Result<(), String> {
              открыты. Альтернатива — «Печать» → «Добавить принтер» (system-config-printer)."
         )
     };
-    run_admin_script(&admin_add_queue_script(name, uri))
+    debug_log(&format!("add_with_uri: name={name} uri={uri}"));
+    let result = run_admin_script(&admin_add_queue_script(name, uri));
+    match &result {
+        Ok(out) => debug_log(&format!("add_with_uri: вывод скрипта: {out}")),
+        Err(e) => debug_log(&format!("add_with_uri: ошибка: {e}")),
+    }
+    result
         .and_then(|out| {
             if out.contains("__OK__") {
                 Ok(())
@@ -1171,9 +1210,9 @@ fn parse_bare_target(input: &str) -> Option<BareTarget> {
         }
     };
     if host.is_empty()
-        || !host.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':')
-        })
+        || !host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
     {
         return None;
     }
@@ -1406,7 +1445,10 @@ pub fn add_printer_connection(path: &str) -> Result<(), String> {
             return Err("Не указан хост принтера".into());
         }
         let (name, uri) = if instance.is_empty() {
-            (sanitize_printer_name(&host), format!("socket://{host}:9100"))
+            (
+                sanitize_printer_name(&host),
+                format!("socket://{host}:9100"),
+            )
         } else {
             (
                 sanitize_printer_name(&instance),
@@ -1467,7 +1509,9 @@ fn parse_lpq(printer: &str, out: &str) -> Vec<JobInfo> {
         if t.len() < 5 || t[0].eq_ignore_ascii_case("rank") || t[2].eq_ignore_ascii_case("job") {
             continue;
         }
-        let Ok(id) = t[2].parse::<u32>() else { continue };
+        let Ok(id) = t[2].parse::<u32>() else {
+            continue;
+        };
         let rank = t[0].to_ascii_lowercase();
         let user = t[1].to_string();
         let document = t[3..size_tail_start(&t)].join(" ");
@@ -1596,7 +1640,10 @@ Rank    Owner   Job     File(s)                         Total Size
 
     #[test]
     fn parse_default_reads_name() {
-        assert_eq!(parse_default("system default destination: HP\n").as_deref(), Some("HP"));
+        assert_eq!(
+            parse_default("system default destination: HP\n").as_deref(),
+            Some("HP")
+        );
         assert_eq!(parse_default("no system default destination\n"), None);
     }
 
@@ -1629,13 +1676,19 @@ Rank    Owner   Job     File(s)                         Total Size
     #[test]
     fn permission_error_detection() {
         assert!(looks_like_permission_error("lpadmin: Unauthorized"));
-        assert!(looks_like_permission_error("Interactive authentication required."));
+        assert!(looks_like_permission_error(
+            "Interactive authentication required."
+        ));
         // Русская локаль РЕД ОС: одно слово «Запрещено».
         assert!(looks_like_permission_error("lpadmin: Запрещено"));
         assert!(looks_like_permission_error("lpadmin: запрещено"));
         assert!(looks_like_permission_error("Access Denied"));
-        assert!(!looks_like_permission_error("lpadmin: Unknown destination \"x\""));
-        assert!(!looks_like_permission_error("make_and_model \"Local Raw Printer\""));
+        assert!(!looks_like_permission_error(
+            "lpadmin: Unknown destination \"x\""
+        ));
+        assert!(!looks_like_permission_error(
+            "make_and_model \"Local Raw Printer\""
+        ));
     }
 
     // --- разбор «голого» адреса ---
@@ -1706,7 +1759,7 @@ Rank    Owner   Job     File(s)                         Total Size
         assert_eq!(&b[4..8], &[0x00, 0x00, 0x00, 0x01]);
         assert_eq!(b[8], 0x01); // operation-attributes-tag
         assert_eq!(*b.last().unwrap(), 0x03); // end-of-attributes-tag
-        // Атрибут printer-uri обязан присутствовать в запросе.
+                                              // Атрибут printer-uri обязан присутствовать в запросе.
         let needle = b"ipp://192.168.1.50:631/ipp/print";
         assert!(b.windows(needle.len()).any(|w| w == needle));
     }

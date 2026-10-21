@@ -2,8 +2,12 @@
 name = "printer-config"
 version = "1.2.5"
 edition = "2021"
-license = "GPL-2.0-or-later"
-description = "Современный frameless-менеджер принтеров (Windows Spooler / Linux CUPS) — Rust/Tauri-реализация system-config-printer"
+license = "MIT"
+description = "Кроссплатформенный менеджер принтеров и очередей печати (Windows Spooler / Linux CUPS) на Rust/Tauri"
+repository = "https://github.com/flytimopheev-sketch/printer-config"
+homepage = "https://github.com/flytimopheev-sketch/printer-config"
+keywords = ["printer", "cups", "printing", "tauri"]
+readme = "../README.md"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -24,6 +28,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_Security",
     "Win32_System_Diagnostics_Debug",
 ] }
+# Обнаружение принтеров по mDNS: чистый Rust, без Bonjour/Avahi в системе.
+mdns = "3"
+async-std = "1"
+futures-util = "0.3"
 
 [lib]
 name = "printer_config_lib"

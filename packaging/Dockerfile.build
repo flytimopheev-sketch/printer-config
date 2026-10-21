@@ -51,4 +51,9 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-l
 
 WORKDIR /app
 
+# Сборка по умолчанию: фронтенд + RPM-пакет.
+# Формат пакета задаётся ключом CLI (--bundles rpm), а не в tauri.conf.json:
+# одна и та же конфигурация должна собираться и под Linux (RPM), и под
+# Windows (NSIS).
+CMD ["bash", "-c", "npm ci && npm run tauri:build:rpm"]
 
