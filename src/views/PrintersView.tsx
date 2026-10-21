@@ -16,6 +16,8 @@ interface PrintersViewProps {
   onShowProperties: (name: string) => void;
   onOpenWebConsole: (name: string) => void;
   onAddClick: () => void;
+  onPrintTestPage: (name: string) => void;
+  onOpenAddWizard: () => void;
   busy: boolean;
 }
 
@@ -33,6 +35,8 @@ export default function PrintersView({
   onShowProperties,
   onOpenWebConsole,
   onAddClick,
+  onPrintTestPage,
+  onOpenAddWizard,
   busy,
 }: PrintersViewProps) {
   return (
@@ -51,6 +55,14 @@ export default function PrintersView({
             title="Обновить список (F5)"
           >
             {busy ? "Загрузка…" : "Обновить"}
+          </button>
+          <button
+            type="button"
+            className="button"
+            onClick={onOpenAddWizard}
+            title="Системный мастер добавления принтера (Windows) / панель CUPS (Linux)"
+          >
+            Системный мастер
           </button>
           <button type="button" className="button button--primary" onClick={onAddClick}>
             + Добавить сетевой принтер
@@ -96,6 +108,7 @@ export default function PrintersView({
             onOpenJobs={onOpenJobs}
             onShowProperties={onShowProperties}
             onOpenWebConsole={onOpenWebConsole}
+            onPrintTestPage={onPrintTestPage}
           />
         ))}
       </div>

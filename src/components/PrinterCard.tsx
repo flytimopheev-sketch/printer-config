@@ -12,6 +12,7 @@ interface PrinterCardProps {
   onOpenJobs: (name: string) => void;
   onShowProperties: (name: string) => void;
   onOpenWebConsole: (name: string) => void;
+  onPrintTestPage: (name: string) => void;
 }
 
 interface InfoLineProps {
@@ -58,6 +59,7 @@ export default function PrinterCard({
   onOpenJobs,
   onShowProperties,
   onOpenWebConsole,
+  onPrintTestPage,
 }: PrinterCardProps) {
   const isDefault = printer.isDefault;
   const isShared = printer.attributeText.includes("Общий доступ");
@@ -120,6 +122,9 @@ export default function PrinterCard({
           Удалить
         </ActionButton>
         <ActionButton onClick={() => onShowProperties(printer.name)}>Свойства</ActionButton>
+        <ActionButton tone="ghost" onClick={() => onPrintTestPage(printer.name)}>
+          Пробная
+        </ActionButton>
         <ActionButton onClick={() => onOpenJobs(printer.name)}>Открыть очередь</ActionButton>
         {webUrl && (
           <ActionButton tone="ghost" onClick={() => onOpenWebConsole(printer.name)}>

@@ -62,6 +62,11 @@ const JOB_ACTION_TEXT: Record<string, string> = {
   restart: "Задание перезапущено",
 };
 
+/** Ограничивает значение диапазоном. */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
 /** Коротко форматирует массив текстов статуса. */
 export function statusText(items: readonly string[], fallback = "Готов") {
   const trimmed = items.filter((s) => s.trim().length > 0);
@@ -79,6 +84,8 @@ export default function App() {
     windowHeight: 620,
     maximized: false,
   });
+  /** Настройки загружены с диска — только после этого применяем размер окна. */
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("printers");
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [jobs, setJobs] = useState<JobInfo[]>([]);
@@ -113,25 +120,89 @@ export default function App() {
     api
       .loadConfig()
       .then((cfg) => {
-        // Компактное окно по умолчанию: зажимаем размер, сохранённый старыми
-        // версиями (1280×820), чтобы компактная вёрстка применилась и у
-        // существующих пользователей. Пользовательский ресайз при этом
-        // сохраняется (ресайз не записывает размер обратно в конфиг).
-        const w = Math.min(Math.round(cfg.windowWidth) || 920, 920);
-        const h = Math.min(Math.round(cfg.windowHeight) || 620, 620);
+        // Размер окна запоминается между запусками. Значения из старых
+        // версий (1280×820) приводим к допустимому диапазону, чтобы окно
+        // не вылезло за пределы экрана.
+        const w = clamp(Math.round(cfg.windowWidth) || 920, 760, 1440);
+        const h = clamp(Math.round(cfg.windowHeight) || 620, 520, 1000);
         setConfig({ ...cfg, windowWidth: w, windowHeight: h });
         setActiveTab(cfg.tab as Tab);
+        setConfigLoaded(true);
       })
       .catch(() => {
         /* настройки отсутствуют — берём значения по умолчанию */
+        setConfigLoaded(true);
       });
   }, []);
 
-  // --- применение размера окна ---
+  // --- применяем сохранённый размер окна один раз при старте ---
+  //  Ждём загрузки конфига: иначе применился бы размер по умолчанию, а не
+  //  сохранённый. Дальше размер меняет только пользователь (ресайз), и он же
+  //  сохраняется обратно в конфиг — иначе окно «прыгало» бы назад при любом
+  //  изменении настроек.
+  const sizeApplied = useRef(false);
+  useEffect(() => {
+    if (!configLoaded || sizeApplied.current) return;
+    sizeApplied.current = true;
+
+    const win = getCurrentWindow();
+    void (async () => {
+      try {
+        await win.setSize(
+          new LogicalSize(
+            Math.round(config.windowWidth),
+            Math.round(config.windowHeight)
+          )
+        );
+        if (config.maximized) await win.maximize();
+      } catch {
+        /* размер окна не изменился — ничего страшного */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configLoaded]);
+
+  // --- запоминаем размер и развёрнутость окна ---
   useEffect(() => {
     const win = getCurrentWindow();
-    win.setSize?.(new LogicalSize(Math.round(config.windowWidth), Math.round(config.windowHeight)));
-  }, [config.windowWidth, config.windowHeight]);
+    let timer: number | null = null;
+
+    const unlisten = win.onResized(({ payload: size }) => {
+      if (timer !== null) window.clearTimeout(timer);
+      // Дебаунс: при перетаскивании окна события идут десятками в секунду.
+      timer = window.setTimeout(() => {
+        void (async () => {
+          try {
+            const maximized = await win.isMaximized();
+            if (maximized) {
+              // В развёрнутом виде размер — это размер экрана; сохранять его
+              // нельзя, иначе после «восстановить» окно окажется размером
+              // с монитор.
+              setConfig((prev) => ({ ...prev, maximized: true }));
+              return;
+            }
+            // Событие отдаёт физические пиксели, а в конфиг мы кладём
+            // логические — иначе на мониторе с масштабом 150% окно
+            // открылось бы в полтора раза больше запомненного.
+            const scale = await win.scaleFactor();
+            setConfig((prev) => ({
+              ...prev,
+              maximized: false,
+              windowWidth: Math.round(size.width / scale),
+              windowHeight: Math.round(size.height / scale),
+            }));
+          } catch {
+            /* не смогли прочитать размер — пропускаем */
+          }
+        })();
+      }, 400);
+    });
+
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
 
   // --- сохранение настроек (дебаунс) ---
   useEffect(() => {
@@ -283,6 +354,33 @@ export default function App() {
     setPropsData(null);
   }, []);
 
+  // --- горячие клавиши ---
+  //  F5 — обновить список, Ctrl+F — поиск, Esc — закрыть диалог.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "F5") {
+        e.preventDefault();
+        void refreshPrinters();
+        return;
+      }
+      if (e.key === "Escape") {
+        if (modalOpen) {
+          setModalOpen(false);
+        } else if (propsName) {
+          handleCloseProperties();
+        }
+        return;
+      }
+      if (e.key === "f" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        document.getElementById("search-printers")?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [refreshPrinters, modalOpen, propsName, handleCloseProperties]);
+
   const handleSaveProperties = useCallback(
     async (form: PropertiesForm) => {
       if (!propsName) return;
@@ -308,14 +406,31 @@ export default function App() {
     [propsName, showToast, refreshPrinters]
   );
 
-  // --- печать тестовой страницы из диалога свойств ---
-  const handlePrintTestPage = useCallback(() => {
-    if (!propsName) return;
+  // --- печать пробной страницы (из карточки принтера и из свойств) ---
+  const handlePrintTestPage = useCallback(
+    (name: string) => {
+      if (!name) return;
+      api
+        .printTestPage(name)
+        .then(() => showToast("success", "Пробная страница отправлена на печать"))
+        .catch((err) =>
+          showToast("error", errText(err, "Не удалось напечатать пробную страницу"))
+        );
+    },
+    [showToast]
+  );
+
+  // --- системный мастер добавления принтера ---
+  //  Windows — штатный мастер Windows (PrintUIEntry /il), Linux — веб-интерфейс
+  //  администрирования CUPS на localhost:631.
+  const handleOpenAddWizard = useCallback(() => {
     api
-      .printTestPage(propsName)
-      .then(() => showToast("success", "Тестовая страница отправлена на печать"))
-      .catch((err) => showToast("error", errText(err, "Не удалось напечатать тестовую страницу")));
-  }, [propsName, showToast]);
+      .openSystem("add-wizard")
+      .then(() => showToast("info", "Открыт системный мастер добавления принтера"))
+      .catch((err) =>
+        showToast("error", errText(err, "Не удалось открыть системный мастер"))
+      );
+  }, [showToast]);
 
   // --- «Активен»: cupsenable/cupsdisable (пункт меню system-config-printer) ---
   const handleSetActive = useCallback(
@@ -625,6 +740,8 @@ export default function App() {
               onShowProperties={handleShowProperties}
               onOpenWebConsole={handleOpenWebConsole}
               onAddClick={() => setModalOpen(true)}
+              onPrintTestPage={handlePrintTestPage}
+              onOpenAddWizard={handleOpenAddWizard}
               busy={busy}
             />
           )}
@@ -719,7 +836,7 @@ export default function App() {
           saving={propsSaving}
           onClose={handleCloseProperties}
           onSave={handleSaveProperties}
-          onPrintTestPage={handlePrintTestPage}
+          onPrintTestPage={() => handlePrintTestPage(propsName)}
           onSetActive={handleSetActive}
         />
       )}

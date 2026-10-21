@@ -51,6 +51,7 @@ pub fn run() {
             commands::load_config,
             commands::save_config,
             commands::platform,
+            commands::diagnostics,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

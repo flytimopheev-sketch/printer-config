@@ -156,6 +156,9 @@ export const api = {
 
   /** `windows` | `linux` | `macos` — целевая платформа сборки. */
   platform: () => invoke<string>("platform"),
+
+  /** Сводка о системе и принтерах — для отчётов об ошибках. */
+  diagnostics: () => invoke<string>("diagnostics"),
 };
 
 // ---------------------------------------------------------------------------

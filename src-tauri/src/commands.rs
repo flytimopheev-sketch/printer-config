@@ -257,6 +257,61 @@ pub fn platform() -> &'static str {
     std::env::consts::OS
 }
 
+/// Сводка о системе и состоянии принтеров — для отчётов об ошибках.
+///
+/// Формируется целиком на бэкенде, чтобы в отчёт попали реальные данные
+/// (версия приложения, ОС, путь к файлу настроек, список очередей), а не
+/// то, что напечатал пользователь по памяти.
+#[tauri::command]
+pub fn diagnostics() -> String {
+    let mut out = String::new();
+
+    out.push_str(&format!("Printer Config {}\n", env!("CARGO_PKG_VERSION")));
+    out.push_str(&format!(
+        "ОС: {} ({})\n",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    ));
+    out.push_str(&format!(
+        "Время запуска (unix): {}\n",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    ));
+
+    match config::config_path() {
+        Ok(path) => out.push_str(&format!("Файл настроек: {}\n", path.display())),
+        Err(e) => out.push_str(&format!("Файл настроек: недоступен ({e})\n")),
+    }
+
+    match winspool::list_printers() {
+        Ok(list) => {
+            out.push_str(&format!("Принтеров: {}\n", list.len()));
+            for p in list {
+                out.push_str(&format!(
+                    "  - {}{} [порт: {}] [драйвер: {}]\n",
+                    p.name,
+                    if p.is_default {
+                        " (по умолчанию)"
+                    } else {
+                        ""
+                    },
+                    if p.port.is_empty() { "—" } else { &p.port },
+                    if p.driver.is_empty() {
+                        "—"
+                    } else {
+                        &p.driver
+                    },
+                ));
+            }
+        }
+        Err(e) => out.push_str(&format!("Список принтеров: ошибка ({e})\n")),
+    }
+
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Обнаружение (mDNS)
 // ---------------------------------------------------------------------------
