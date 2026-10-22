@@ -648,8 +648,10 @@ export default function App() {
   // --- рендер ---
   return (
     <div className="window">
-      <div className="titlebar">
-        <span className="titlebar__title">Printer Config</span>
+      <div className="titlebar" data-tauri-drag-region>
+        <span className="titlebar__title" data-tauri-drag-region>
+          Printer Config
+        </span>
         <button
           type="button"
           className="titlebar__btn titlebar__btn--min"

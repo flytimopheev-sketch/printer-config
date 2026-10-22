@@ -64,8 +64,10 @@ body {
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
-  /* Перетаскивание frameless-окна за заголовок (WebKitGTK/Tauri Linux) */
-  -webkit-app-region: drag;
+  /* Перетаскивание окна делает Tauri по атрибуту data-tauri-drag-region
+     (см. разметку заголовка). CSS-свойство -webkit-app-region здесь не
+     используется: на Linux/WebKitGTK оно перехватывает нажатия, и кнопки
+     «Свернуть»/«Закрыть» перестают работать. */
   position: relative;
   z-index: 1;
 }
@@ -76,7 +78,9 @@ body {
   letter-spacing: 0.02em;
   color: var(--text-dim);
   flex: 1;
-  -webkit-app-region: drag;
+  /* Текст заголовка тоже перетаскивает окно, но кнопки остаются кликабельными:
+     атрибут есть только у самих элементов заголовка. */
+  cursor: default;
 }
 
 .titlebar__btn {
@@ -90,8 +94,6 @@ body {
   color: var(--text-dim);
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
-  /* Кнопки заголовка не должны перехватывать перетаскивание окна */
-  -webkit-app-region: no-drag;
 }
 
 .titlebar__btn:hover {

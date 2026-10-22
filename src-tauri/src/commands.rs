@@ -9,56 +9,77 @@ use crate::discovery::Discovery;
 // прежние имена `winspool::*` внутри этого модуля.
 use crate::backend::{self as winspool, JobInfo, PrinterInfo, PrinterProperties};
 
+/// Выполняет блокирующую работу в пуле потоков, а не в главном.
+///
+/// Tauri выполняет синхронные команды прямо в главном потоке: пока идёт
+/// `lpstat`/`lpadmin`/`avahi-browse`, окно не перерисовывается и не реагирует
+/// на нажатия — при старте это выглядело как «окно появилось, но пустое
+/// несколько секунд», а во время работы — как зависание. Команды, которые
+/// ходят в CUPS/Spooler или файловую систему, объявлены `async` и уходят сюда.
+async fn blocking<T, F>(job: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    match tauri::async_runtime::spawn_blocking(job).await {
+        Ok(result) => result,
+        Err(e) => Err(format!("Фоновый поток завершился с ошибкой: {e}")),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Принтеры
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn list_printers() -> Result<Vec<PrinterInfo>, String> {
-    winspool::list_printers()
+pub async fn list_printers() -> Result<Vec<PrinterInfo>, String> {
+    blocking(winspool::list_printers).await
 }
 
 #[tauri::command]
-pub fn set_default_printer(name: String) -> Result<(), String> {
-    winspool::set_default_printer(&name)
+pub async fn set_default_printer(name: String) -> Result<(), String> {
+    blocking(move || winspool::set_default_printer(&name)).await
 }
 
 #[tauri::command]
-pub fn set_printer_paused(name: String, paused: bool) -> Result<(), String> {
-    winspool::set_printer_paused(&name, paused)
+pub async fn set_printer_paused(name: String, paused: bool) -> Result<(), String> {
+    blocking(move || winspool::set_printer_paused(&name, paused)).await
 }
 
 #[tauri::command]
-pub fn set_printer_shared(name: String, shared: bool) -> Result<(), String> {
-    winspool::set_printer_shared(&name, shared)
+pub async fn set_printer_shared(name: String, shared: bool) -> Result<(), String> {
+    blocking(move || winspool::set_printer_shared(&name, shared)).await
 }
 
 #[tauri::command]
-pub fn delete_printer(name: String) -> Result<(), String> {
-    winspool::delete_printer(&name)
+pub async fn delete_printer(name: String) -> Result<(), String> {
+    blocking(move || winspool::delete_printer(&name)).await
 }
 
 /// Свойства принтера для диалога «Свойства»: место, описание, общий доступ и
 /// базовые опции драйвера (размер бумаги, двусторонняя печать, качество).
 #[tauri::command]
-pub fn get_printer_properties(name: String) -> Result<PrinterProperties, String> {
-    winspool::get_printer_properties(&name)
+pub async fn get_printer_properties(name: String) -> Result<PrinterProperties, String> {
+    blocking(move || winspool::get_printer_properties(&name)).await
 }
 
 /// Применение свойств принтера (одна lpadmin-команда с повышением прав).
 #[tauri::command]
-pub fn set_printer_properties(
+pub async fn set_printer_properties(
     name: String,
     location: String,
     description: String,
     shared: bool,
     options: std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    winspool::set_printer_properties(&name, &location, &description, shared, &options)
+    blocking(move || {
+        winspool::set_printer_properties(&name, &location, &description, shared, &options)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn add_printer_connection(path: String) -> Result<(), String> {
+pub async fn add_printer_connection(path: String) -> Result<(), String> {
     let path = path.trim().to_string();
     if path.is_empty() {
         return Err("Укажите путь к принтеру, например \\\\сервер\\имя".into());
@@ -71,7 +92,7 @@ pub fn add_printer_connection(path: String) -> Result<(), String> {
             return Err("Путь должен начинаться с \\\\ (двойного обратного слэша)".into());
         }
     }
-    winspool::add_printer_connection(&path)
+    blocking(move || winspool::add_printer_connection(&path)).await
 }
 
 // ---------------------------------------------------------------------------
@@ -79,13 +100,13 @@ pub fn add_printer_connection(path: String) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn list_jobs(printer: String) -> Result<Vec<JobInfo>, String> {
-    winspool::list_jobs(&printer)
+pub async fn list_jobs(printer: String) -> Result<Vec<JobInfo>, String> {
+    blocking(move || winspool::list_jobs(&printer)).await
 }
 
 #[tauri::command]
-pub fn job_action(printer: String, job_id: u32, action: String) -> Result<(), String> {
-    winspool::job_action(&printer, job_id, &action)
+pub async fn job_action(printer: String, job_id: u32, action: String) -> Result<(), String> {
+    blocking(move || winspool::job_action(&printer, job_id, &action)).await
 }
 
 // ---------------------------------------------------------------------------
@@ -201,19 +222,22 @@ fn print_test_page_unix(printer: &str) -> Result<(), String> {
 /// Печать тестовой страницы из диалога свойств: Linux — `lp -d <принтер>`,
 /// Windows — системный диалог печати (`PrintUIEntry /k`).
 #[tauri::command]
-pub fn print_test_page(name: String) -> Result<(), String> {
+pub async fn print_test_page(name: String) -> Result<(), String> {
     let name = name.trim().to_string();
     if name.is_empty() {
         return Err("Не выбран принтер".into());
     }
-    #[cfg(windows)]
-    {
-        open_system("test-page".to_string(), Some(name))
-    }
-    #[cfg(unix)]
-    {
-        print_test_page_unix(&name)
-    }
+    blocking(move || {
+        #[cfg(windows)]
+        {
+            open_system("test-page".to_string(), Some(name))
+        }
+        #[cfg(unix)]
+        {
+            print_test_page_unix(&name)
+        }
+    })
+    .await
 }
 
 /// Открывает URL (веб-интерфейс найденного принтера).
@@ -263,7 +287,14 @@ pub fn platform() -> &'static str {
 /// (версия приложения, ОС, путь к файлу настроек, список очередей), а не
 /// то, что напечатал пользователь по памяти.
 #[tauri::command]
-pub fn diagnostics() -> String {
+pub async fn diagnostics() -> String {
+    match tauri::async_runtime::spawn_blocking(diagnostics_text).await {
+        Ok(text) => text,
+        Err(e) => format!("Не удалось собрать диагностику: {e}\n"),
+    }
+}
+
+fn diagnostics_text() -> String {
     let mut out = String::new();
 
     out.push_str(&format!("Printer Config {}\n", env!("CARGO_PKG_VERSION")));
@@ -338,11 +369,17 @@ pub fn discovery_running(discovery: State<'_, Discovery>) -> bool {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn load_config() -> AppConfig {
-    config::load()
+pub async fn load_config() -> AppConfig {
+    match tauri::async_runtime::spawn_blocking(config::load).await {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            log::warn!("не удалось прочитать настройки: {e}");
+            AppConfig::default()
+        }
+    }
 }
 
 #[tauri::command]
-pub fn save_config(cfg: AppConfig) -> Result<(), String> {
-    config::save(&cfg)
+pub async fn save_config(cfg: AppConfig) -> Result<(), String> {
+    blocking(move || config::save(&cfg)).await
 }

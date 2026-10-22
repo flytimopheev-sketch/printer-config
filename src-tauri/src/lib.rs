@@ -56,15 +56,34 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
 
-            // Обработчик закрытия главного окна: завершаем процесс чисто,
-            // чтобы фоновый поток mDNS не мешал выходу на Linux.
+            // Обработчик закрытия главного окна: останавливаем mDNS и выходим.
+            //
+            // Раньше здесь вызывался `AppHandle::exit` прямо из обработчика
+            // события окна. Это блокирует цикл событий: окно исчезало, а
+            // процесс оставался висеть. Поэтому закрытие и выход выполняются
+            // в отдельном потоке, плюс есть страховка на случай, если штатное
+            // завершение зависнет.
             let window = app
                 .get_webview_window("main")
                 .expect("главное окно не найдено");
             let close_handle = app_handle.clone();
             window.on_window_event(move |event| {
-                if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                    close_handle.exit(0);
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let handle = close_handle.clone();
+                    std::thread::spawn(move || {
+                        // Страховка: если штатный выход не завершится за 1,5 с,
+                        // процесс завершается принудительно. Настройки к этому
+                        // моменту уже сохранены автосохранением.
+                        std::thread::spawn(|| {
+                            std::thread::sleep(std::time::Duration::from_millis(1500));
+                            std::process::exit(0);
+                        });
+                        if let Some(discovery) = handle.try_state::<Discovery>() {
+                            let _ = discovery.stop();
+                        }
+                        handle.exit(0);
+                    });
                 }
             });
 
@@ -72,7 +91,11 @@ pub fn run() {
             let handle = app_handle.clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                let discovery = handle.state::<Discovery>();
+                // try_state: при завершении приложения состояние уже удалено —
+                // поток спокойно выходит вместо паники.
+                let Some(discovery) = handle.try_state::<Discovery>() else {
+                    break;
+                };
                 for event in discovery.poll() {
                     match &event {
                         discovery::DiscoveryEvent::Found(p) => {

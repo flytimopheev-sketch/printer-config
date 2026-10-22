@@ -32,12 +32,16 @@ RUN dnf install -y --setopt=install_weak_deps=false --exclude='openh264*' \
 # через rustup. Важно: версия rustup НЕ влияет на glibc — линковка идёт против
 # системной glibc 2.36 (Fedora 37), поэтому бинарник совместим с РЕД ОС 8.0.
 # 1.88+ нужен из-за транзитивных зависимостей (darling 0.24, icu_* 2.3).
+# rustfmt/clippy включены, чтобы в этом же контейнере можно было прогнать
+# те же проверки, что и в CI (`cargo fmt --check`, `cargo clippy -D warnings`).
 ARG RUST_VERSION=1.90.0
 RUN curl -fsSL https://sh.rustup.rs \
       | sh -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal \
-    && ln -sf /root/.cargo/bin/cargo /usr/local/bin/cargo \
-    && ln -sf /root/.cargo/bin/rustc /usr/local/bin/rustc \
-    && rustc --version && cargo --version
+        --component rustfmt --component clippy \
+    && for bin in cargo rustc rustup rustfmt cargo-fmt cargo-clippy clippy-driver; do \
+         ln -sf /root/.cargo/bin/$bin /usr/local/bin/$bin; \
+       done \
+    && rustc --version && cargo --version && cargo fmt --version
 
 # Vite 7 требует Node.js 20.19+/22.12+; в репозиториях Fedora 37 только nodejs 18,
 # поэтому ставим официальный тарбол Node 22 (не влияет на glibc-совместимость
