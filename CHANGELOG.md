@@ -5,8 +5,7 @@
 
 ## [Не выпущено]
 
-Версия в коде — 1.2.6. Релиз пока не создавался: изменения собираются и
-проверяются в CI, тег `v1.2.6` можно поставить, когда сборка готова.
+## [1.2.6] - 2026-10-22
 
 ### Добавлено
 
@@ -169,3 +168,21 @@
 
 - Первый публичный релиз: нативный CUPS-бэкенд для Linux, RPM-пакет для
   РЕД ОС, управление очередями и заданиями, публикация релизов из CI.
+
+## Сравнение
+
+[Не выпущено]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.2.6...HEAD
+[1.2.6]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.2.5...v1.2.6
+[1.2.5]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.2.4...v1.2.5
+[1.2.4]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.2.3...v1.2.4
+[1.2.3]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.2.2...v1.2.3
+[1.2.2]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.1.5...v1.2.0
+[1.1.5]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.1.4...v1.1.5
+[1.1.4]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.1.3...v1.1.4
+[1.1.3]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.1.2...v1.1.3
+[1.1.2]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/flytimopheev-sketch/printer-config/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/flytimopheev-sketch/printer-config/releases/tag/v1.0.0
